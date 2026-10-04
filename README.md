@@ -97,6 +97,8 @@ Then, for each release:
 ./scripts/release.sh 0.1.0 --publish  # same, then creates the GitHub release with gh
 ```
 
+Every change is recorded in [CHANGELOG.md](CHANGELOG.md) under "Unreleased"; cutting a release means moving that section under a version heading, then tagging. The version's changelog section becomes the GitHub release notes.
+
 Or let GitHub Actions do it: pushing a tag `v<version>` runs `.github/workflows/release.yml`, which imports the Developer ID certificate from repository secrets, notarizes, and publishes the release. Set the secrets once with `scripts/setup-release-secrets.sh`. Run it without arguments and it exports your signing identities (certificate plus private key) from the login keychain itself; or pass a `.p12` you exported from Xcode → Settings → Accounts → Manage Certificates… → Export Certificate…. Then:
 
 ```bash

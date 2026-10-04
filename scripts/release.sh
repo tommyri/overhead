@@ -89,9 +89,17 @@ echo "==> Done: $DMG"
 
 if [ "$PUBLISH" = 1 ]; then
   command -v gh >/dev/null || { echo "gh not found: brew install gh"; exit 1; }
+  # Release notes: this version's section of CHANGELOG.md, falling back to generated notes.
+  NOTES=$(awk -v v="$VERSION" '
+    /^## \[/ { if (found) exit; if (index($0, "## [" v "]") == 1) { found = 1; next } }
+    found { print }' CHANGELOG.md | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')
   if gh release view "v$VERSION" >/dev/null 2>&1; then
     gh release upload "v$VERSION" "$DMG" "$DMG.sha256" --clobber
+    [ -n "$NOTES" ] && gh release edit "v$VERSION" --notes "$NOTES" >/dev/null
+  elif [ -n "$NOTES" ]; then
+    gh release create "v$VERSION" "$DMG" "$DMG.sha256" --title "Overhead $VERSION" --notes "$NOTES"
   else
+    echo "warning: no CHANGELOG.md section for $VERSION; using generated notes" >&2
     gh release create "v$VERSION" "$DMG" "$DMG.sha256" --title "Overhead $VERSION" --generate-notes
   fi
 fi
