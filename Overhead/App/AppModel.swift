@@ -15,22 +15,25 @@ enum FetchStatus: Equatable {
 @MainActor
 @Observable
 final class AppModel {
+    /// Synthetic data for screenshots (`-demoData YES`); nothing is read, fetched or saved.
+    let isDemo = DemoData.isEnabled
+
     // MARK: Persisted preferences
     var enabledProviders: Set<ProviderID> {
-        didSet { Prefs.enabled = enabledProviders }
+        didSet { if !isDemo { Prefs.enabled = enabledProviders } }
     }
     var rangePreset: DateRangePreset {
-        didSet { Prefs.rangePreset = rangePreset }
+        didSet { if !isDemo { Prefs.rangePreset = rangePreset } }
     }
     var refreshMinutes: Int {
-        didSet { Prefs.refreshMinutes = refreshMinutes; rescheduleTimer() }
+        didSet { if !isDemo { Prefs.refreshMinutes = refreshMinutes }; rescheduleTimer() }
     }
     var menuBarMetric: MenuBarMetric {
-        didSet { Prefs.menuBarMetric = menuBarMetric }
+        didSet { if !isDemo { Prefs.menuBarMetric = menuBarMetric } }
     }
     /// How each provider is paid for; drives the "Paid vs value" comparison.
     var billingPlans: [ProviderID: BillingPlan] {
-        didSet { Prefs.billingPlans = billingPlans }
+        didSet { if !isDemo { Prefs.billingPlans = billingPlans } }
     }
 
     enum MenuBarMetric: String, CaseIterable, Identifiable {
@@ -50,7 +53,7 @@ final class AppModel {
     private(set) var statusByProvider: [ProviderID: FetchStatus] = [:]
     private(set) var credentials: Credentials = [:]
     var selectedProvider: ProviderID? = nil {
-        didSet { Prefs.selectedProvider = selectedProvider }
+        didSet { if !isDemo { Prefs.selectedProvider = selectedProvider } }
     }
     private(set) var planStatus: [ProviderID: PlanStatus] = [:]
     var lastRefresh: Date? = nil
@@ -62,6 +65,15 @@ final class AppModel {
     private var timer: Timer?
 
     init() {
+        if DemoData.isEnabled {
+            enabledProviders = Set(DemoData.providers)
+            rangePreset = .last30
+            refreshMinutes = 0
+            menuBarMetric = .todayCost
+            billingPlans = DemoData.billingPlans
+            selectedProvider = Prefs.selectedProvider   // honoured from launch arguments, never written
+            return
+        }
         AppIdentity.migrateDefaultsIfNeeded()
         enabledProviders = Prefs.enabled
         rangePreset = Prefs.rangePreset
@@ -75,6 +87,16 @@ final class AppModel {
     // MARK: Lifecycle
 
     func start() async {
+        if isDemo {
+            let all = DemoData.records()
+            for p in DemoData.providers {
+                recordsByProvider[p] = all.filter { $0.provider == p }
+                statusByProvider[p] = .ok(Date().addingTimeInterval(-90))
+                planStatus[p] = DemoData.planStatus(for: p)
+            }
+            lastRefresh = Date().addingTimeInterval(-90)
+            return
+        }
         // Show cached data immediately, then refresh in the background.
         for p in ProviderID.allCases {
             if let snap = await cache.load(p) {
@@ -134,6 +156,7 @@ final class AppModel {
     // MARK: Refresh
 
     func refreshAll(force: Bool) async {
+        guard !isDemo else { lastRefresh = Date(); return }
         let targets = ProviderID.allCases.filter { enabledProviders.contains($0) }
         // One child task per provider so a slow API does not block the local parsers.
         let tasks = targets.map { p in Task { await self.refresh(p, force: force) } }
@@ -142,6 +165,7 @@ final class AppModel {
     }
 
     func refresh(_ id: ProviderID, force: Bool) async {
+        guard !isDemo else { return }
         guard let provider = registry.provider(for: id) else { return }
         guard provider.isConfigured(credentials) else {
             statusByProvider[id] = .notConfigured

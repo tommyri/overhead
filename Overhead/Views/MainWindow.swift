@@ -26,7 +26,7 @@ struct MainWindow: View {
                     ForEach(DateRangePreset.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 440)
+                .fixedSize()
 
                 Button {
                     Task { await model.refreshAll(force: true) }

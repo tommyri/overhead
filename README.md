@@ -89,13 +89,15 @@ Then, for each release:
 ./scripts/release.sh 0.1.0 --publish  # same, then creates the GitHub release with gh
 ```
 
-Or let GitHub Actions do it: pushing a tag `v<version>` runs `.github/workflows/release.yml`, which imports the Developer ID certificate from repository secrets, notarizes, and publishes the release. Set the secrets once with `scripts/setup-release-secrets.sh <DeveloperID.p12>` (export the certificate with its private key from Keychain Access first). Then:
+Or let GitHub Actions do it: pushing a tag `v<version>` runs `.github/workflows/release.yml`, which imports the Developer ID certificate from repository secrets, notarizes, and publishes the release. Set the secrets once with `scripts/setup-release-secrets.sh`. Run it without arguments and it exports your signing identities (certificate plus private key) from the login keychain itself; or pass a `.p12` you exported from Xcode → Settings → Accounts → Manage Certificates… → Export Certificate…. Then:
 
 ```bash
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
 The script builds Release with hardened runtime and a secure timestamp, notarizes the app, staples it, wraps it in a DMG with an Applications shortcut, then notarizes and staples the DMG too, and writes a SHA-256 next to it. `--skip-notarize` produces a signed but un-notarized DMG for local testing.
+
+The screenshots above were taken with synthetic data: `open /Applications/Overhead.app --args -demoData YES` runs the app on generated usage without reading, fetching or saving anything.
 
 ### Core package tests and debug CLI
 
