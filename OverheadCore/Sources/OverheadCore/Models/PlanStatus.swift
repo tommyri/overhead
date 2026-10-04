@@ -11,9 +11,12 @@ public struct PlanStatus: Codable, Sendable, Hashable {
         /// e.g. "$14.20 of $60.00"
         public var detail: String?
         public var resetsAt: Date?
+        /// Start of the current period, when known; enables projections.
+        public var periodStart: Date?
 
-        public init(title: String, usedPercent: Double, detail: String? = nil, resetsAt: Date? = nil) {
+        public init(title: String, usedPercent: Double, detail: String? = nil, resetsAt: Date? = nil, periodStart: Date? = nil) {
             self.title = title; self.usedPercent = usedPercent; self.detail = detail; self.resetsAt = resetsAt
+            self.periodStart = periodStart
         }
     }
 

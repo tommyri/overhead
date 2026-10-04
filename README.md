@@ -1,6 +1,6 @@
 # Overhead
 
-A native macOS app (SwiftUI, menu bar + window) that shows how much you use and spend across LLM providers in one place: daily cost and token charts, per-model and per-project breakdowns, paid vs value for your subscriptions, and a menu bar item with today's spend.
+A native macOS app (SwiftUI, menu bar + window) that shows how much you use and spend across LLM providers in one place: daily cost and token charts, per-model and per-project breakdowns, paid vs value for your subscriptions, month-end projections, plan-limit alerts, and a menu bar item with today's spend.
 
 ## Screenshots
 
@@ -14,7 +14,7 @@ A native macOS app (SwiftUI, menu bar + window) that shows how much you use and 
 
 | Menu bar | Settings → Providers |
 |---|---|
-| <img src="docs/screenshots/menubar.png" width="420" alt="Menu bar popover with today's and this month's spend per provider"> | <img src="docs/screenshots/settings.png" width="420" alt="Provider settings with the auto-detected billing plan"> |
+| <img src="docs/screenshots/menubar.png" width="420" alt="Menu bar popover with plan windows, alerts, and today's and this month's spend per provider"> | <img src="docs/screenshots/settings.png" width="420" alt="Provider settings with the auto-detected billing plan"> |
 
 ## Providers
 
@@ -80,7 +80,7 @@ Pass a directory to install elsewhere, e.g. `./scripts/install.sh ~/Applications
 
 For development, `./scripts/run.sh` builds and launches from the build folder, or open `Overhead.xcodeproj` in Xcode (after `xcodegen generate`) and press Run.
 
-Navigate with the sidebar, the Go menu, or ⌘1 for the overview and ⌘2… for each provider; provider rows on the overview are clickable too. Settings → General has a "Launch at login" toggle (uses `SMAppService`; the app should live in /Applications for that).
+Navigate with the sidebar, the Go menu, or ⌘1 for the overview and ⌘2… for each provider; provider rows on the overview are clickable too. Settings → General has plan-limit alerts (a notification when a Codex or Cursor window passes 70/80/90% or is on pace to run out before it resets; the menu bar icon turns into a warning sign meanwhile) and a "Launch at login" toggle (uses `SMAppService`; the app should live in /Applications for that).
 
 ### Releasing a notarized DMG
 

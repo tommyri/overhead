@@ -169,6 +169,15 @@ struct PlanStatusView: View {
                 }
             }
             .font(.caption2).foregroundStyle(.tertiary)
+            if let p = Forecast.project(w) {
+                if let at = p.exhaustsAt, w.usedPercent < 100 {
+                    Label("At this pace it runs out \(at, format: .relative(presentation: .named))", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption2).foregroundStyle(.orange)
+                } else {
+                    Text(String(format: "On pace for %.0f%% by reset", min(p.projectedPercentAtReset, 999)))
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
         }
         .frame(maxWidth: .infinity)
     }

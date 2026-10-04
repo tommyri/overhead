@@ -35,6 +35,14 @@ final class AppModel {
     var billingPlans: [ProviderID: BillingPlan] {
         didSet { if !isDemo { Prefs.billingPlans = billingPlans } }
     }
+    /// Plan-limit alerts: macOS notifications when a window passes `alertThreshold` percent
+    /// or is on pace to run out before it resets.
+    var alertsEnabled: Bool {
+        didSet { if !isDemo { Prefs.alertsEnabled = alertsEnabled }; evaluateAlerts() }
+    }
+    var alertThreshold: Int {
+        didSet { if !isDemo { Prefs.alertThreshold = alertThreshold }; evaluateAlerts() }
+    }
 
     enum MenuBarMetric: String, CaseIterable, Identifiable {
         case todayCost, monthCost, rangeCost
@@ -66,6 +74,8 @@ final class AppModel {
         set { if case .provider(let p) = newValue { selectedProvider = p } else { selectedProvider = nil } }
     }
     private(set) var planStatus: [ProviderID: PlanStatus] = [:]
+    private(set) var activeAlerts: [PlanAlert] = []
+    let notifier = AlertNotifier()
     var lastRefresh: Date? = nil
     var isRefreshing: Bool { statusByProvider.values.contains(.loading) }
 
@@ -81,6 +91,8 @@ final class AppModel {
             refreshMinutes = 0
             menuBarMetric = .todayCost
             billingPlans = DemoData.billingPlans
+            alertsEnabled = true
+            alertThreshold = 80
             selectedProvider = Prefs.selectedProvider   // honoured from launch arguments, never written
             return
         }
@@ -90,6 +102,8 @@ final class AppModel {
         refreshMinutes = Prefs.refreshMinutes
         menuBarMetric = Prefs.menuBarMetric
         billingPlans = Prefs.billingPlans
+        alertsEnabled = Prefs.alertsEnabled
+        alertThreshold = Prefs.alertThreshold
         selectedProvider = Prefs.selectedProvider
         loadCredentials()
     }
@@ -105,8 +119,10 @@ final class AppModel {
                 planStatus[p] = DemoData.planStatus(for: p)
             }
             lastRefresh = Date().addingTimeInterval(-90)
+            evaluateAlerts()
             return
         }
+        if alertsEnabled { await notifier.refreshAuthorization() }
         // Show cached data immediately, then refresh in the background.
         for p in ProviderID.allCases {
             if let snap = await cache.load(p) {
@@ -128,7 +144,36 @@ final class AppModel {
         if let status = try? await provider.planStatus(credentials: creds) {
             planStatus[id] = status
             applyDetectedPlan(status.suggestedPlan, to: id)
+            evaluateAlerts()
         }
+    }
+
+    // MARK: Alerts
+
+    /// Recompute which windows are alerting; notify about new ones when alerts are on.
+    func evaluateAlerts() {
+        var alerts: [PlanAlert] = []
+        for (provider, status) in planStatus where enabledProviders.contains(provider) {
+            for w in status.windows {
+                if let a = PlanAlert.evaluate(provider: provider, window: w, threshold: alertThreshold) { alerts.append(a) }
+            }
+        }
+        alerts.sort { ($0.level, $0.window.usedPercent) > ($1.level, $1.window.usedPercent) }
+        activeAlerts = alerts
+        if alertsEnabled && !isDemo { notifier.deliver(alerts) }
+    }
+
+    var hasAlerts: Bool { !activeAlerts.isEmpty }
+
+    /// Turn alerts on, asking macOS for notification permission first.
+    func enableAlerts() async -> Bool {
+        let ok = await notifier.requestAuthorization()
+        alertsEnabled = ok
+        return ok
+    }
+
+    func sendTestNotification() {
+        notifier.post(title: "Overhead alerts are on", body: "You'll be told when a plan window passes \(alertThreshold)% or is on pace to run out.", id: "test")
     }
 
     /// Pre-fill the billing plan from what the provider reports, unless the user has edited it.
@@ -394,6 +439,16 @@ private enum Prefs {
             let raw = Dictionary(uniqueKeysWithValues: newValue.map { ($0.key.rawValue, $0.value) })
             d.set(try? JSONEncoder().encode(raw), forKey: "billingPlans")
         }
+    }
+
+    static var alertsEnabled: Bool {
+        get { d.bool(forKey: "alertsEnabled") }
+        set { d.set(newValue, forKey: "alertsEnabled") }
+    }
+
+    static var alertThreshold: Int {
+        get { d.object(forKey: "alertThreshold") == nil ? 80 : d.integer(forKey: "alertThreshold") }
+        set { d.set(newValue, forKey: "alertThreshold") }
     }
 
     static var menuBarMetric: AppModel.MenuBarMetric {

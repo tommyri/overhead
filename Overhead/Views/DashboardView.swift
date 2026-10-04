@@ -39,6 +39,10 @@ struct DashboardView: View {
                         PaidVsValueTable(rows: comparison, interval: model.currentInterval)
                     }
 
+                    ChartCard(title: "This month, projected") {
+                        MonthForecastTable(providers: providers)
+                    }
+
                     ChartCard(title: "Daily \(metric.title.lowercased()) by provider") {
                         Picker("Metric", selection: $metric) {
                             ForEach(ChartMetric.allCases) { Text($0.title).tag($0) }
@@ -464,6 +468,71 @@ struct ModelTable: View {
                 Text("No usage in this range").font(.callout).foregroundStyle(.secondary).padding(.vertical, 12)
             }
         }
+    }
+}
+
+// MARK: - Month forecast
+
+/// Month-to-date value and a straight-line projection to month end, next to what the month
+/// will cost in fees.
+struct MonthForecastTable: View {
+    @Environment(AppModel.self) private var model
+    let providers: [ProviderID]
+
+    var body: some View {
+        let month = DateRangePreset.thisMonth.interval()
+        let rows = providers.map { p -> (ProviderID, Forecast.MonthForecast, Double?) in
+            let f = Forecast.monthEnd(records: model.recordsByProvider[p] ?? [])
+            let plan = model.billingPlan(for: p)
+            let paid: Double? = plan.isSubscription ? (plan.hasFee ? plan.monthlyFeeUSD : nil) : nil
+            return (p, f, paid)
+        }
+        let total = Forecast.monthEnd(records: model.allRecords)
+        let totalPaid = rows.compactMap(\.2).reduce(0, +)
+        let anyMissingFee = rows.contains { model.billingPlan(for: $0.0).isSubscription && $0.2 == nil }
+
+        VStack(spacing: 0) {
+            HStack {
+                Text("Provider").frame(maxWidth: .infinity, alignment: .leading)
+                Text("So far").frame(width: 90, alignment: .trailing)
+                Text("Projected").frame(width: 90, alignment: .trailing)
+                Text("Fee").frame(width: 80, alignment: .trailing)
+            }
+            .font(.caption).foregroundStyle(.secondary).padding(.bottom, 6)
+            Divider()
+            ForEach(rows, id: \.0) { provider, f, paid in
+                HStack {
+                    HStack(spacing: 6) {
+                        Circle().fill(provider.color).frame(width: 7, height: 7)
+                        Text(provider.displayName)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(Fmt.usd(f.valueToDate, estimate: f.isEstimate)).frame(width: 90, alignment: .trailing).foregroundStyle(.secondary)
+                    Text(Fmt.usd(f.projectedValue, estimate: true)).frame(width: 90, alignment: .trailing).fontWeight(.medium)
+                    Text(paid.map { Fmt.usd($0) } ?? (model.billingPlan(for: provider).isSubscription ? "set fee" : "—"))
+                        .frame(width: 80, alignment: .trailing)
+                        .foregroundStyle(paid == nil ? .secondary : .primary)
+                }
+                .font(.callout.monospacedDigit())
+                .padding(.vertical, 5)
+                .contentShape(Rectangle())
+                .onTapGesture { model.selectedProvider = provider }
+                Divider()
+            }
+            HStack {
+                Text("Total").fontWeight(.semibold).frame(maxWidth: .infinity, alignment: .leading)
+                Text(Fmt.usd(total.valueToDate, estimate: total.isEstimate)).frame(width: 90, alignment: .trailing)
+                Text(Fmt.usd(total.projectedValue, estimate: true)).frame(width: 90, alignment: .trailing)
+                Text(anyMissingFee ? "—" : Fmt.usd(totalPaid)).frame(width: 80, alignment: .trailing)
+            }
+            .font(.callout.monospacedDigit().weight(.medium))
+            .padding(.top, 8)
+            Text("Day \(total.daysElapsed) of \(total.daysInMonth). Projection continues the last 7 days' average for the remaining \(total.daysRemaining) day\(total.daysRemaining == 1 ? "" : "s"); fees are the full monthly price.")
+                .font(.caption2).foregroundStyle(.tertiary).padding(.top, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.bottom, 0)
+        .onAppear { _ = month }
     }
 }
 

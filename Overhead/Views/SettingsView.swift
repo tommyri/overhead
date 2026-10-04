@@ -19,6 +19,13 @@ struct GeneralSettings: View {
     @Environment(AppModel.self) private var model
     @State private var loginItem = LoginItem()
 
+    private var alertsNote: String {
+        if model.alertsEnabled, model.notifier.authorized == false {
+            return "Notifications are blocked for Overhead in System Settings → Notifications."
+        }
+        return "Also alerts when a window is on pace to run out before it resets. Codex and Cursor report windows; Claude's are not available."
+    }
+
     var body: some View {
         @Bindable var model = model
         Form {
@@ -29,6 +36,25 @@ struct GeneralSettings: View {
                 ))
                 if let note = loginItem.note {
                     Text(note).font(.callout).foregroundStyle(.secondary)
+                }
+            }
+            Section {
+                Toggle("Plan-limit alerts", isOn: Binding(
+                    get: { model.alertsEnabled },
+                    set: { on in
+                        if on { Task { _ = await model.enableAlerts() } } else { model.alertsEnabled = false }
+                    }
+                ))
+                Picker("Notify when a window passes", selection: $model.alertThreshold) {
+                    Text("70%").tag(70)
+                    Text("80%").tag(80)
+                    Text("90%").tag(90)
+                }
+                .disabled(!model.alertsEnabled)
+                HStack {
+                    Text(alertsNote).font(.callout).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Send test") { model.sendTestNotification() }.disabled(!model.alertsEnabled)
                 }
             }
             Picker("Refresh every", selection: $model.refreshMinutes) {

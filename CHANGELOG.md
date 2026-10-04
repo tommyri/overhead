@@ -6,6 +6,11 @@ The release script uses a version's section below as the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+- Plan-limit alerts: optional macOS notifications when a Codex or Cursor usage window passes a chosen threshold (70/80/90%) or is on pace to run out before it resets; the menu bar icon switches to a warning symbol and the popover lists each window with its state. Settings → General has the toggle, threshold and a test button.
+- Projections on plan windows: "on pace for N% by reset" or "runs out <when>", computed from the elapsed share of the period.
+- "This month, projected" card on the overview: value so far, straight-line projection to month end at the last seven days' pace, and the monthly fee, per provider and in total.
+
 ## [0.2.1] - 2026-10-04
 
 ### Changed

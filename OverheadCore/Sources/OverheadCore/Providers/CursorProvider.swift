@@ -251,6 +251,7 @@ public struct CursorProvider: UsageProvider {
         let iso = ISO8601DateFormatter(); iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let isoPlain = ISO8601DateFormatter()
         let cycleEnd = s.billingCycleEnd.flatMap { iso.date(from: $0) ?? isoPlain.date(from: $0) }
+        let cycleStart = s.billingCycleStart.flatMap { iso.date(from: $0) ?? isoPlain.date(from: $0) }
         func usd(_ cents: Int?) -> String? { cents.map { String(format: "$%.2f", Double($0) / 100) } }
 
         var windows: [PlanStatus.Window] = []
@@ -263,7 +264,7 @@ public struct CursorProvider: UsageProvider {
                let used = usd(usedC), let limit = usd(limitC) {
                 detail = "\(used) of \(limit) included"
             }
-            windows.append(.init(title: "Included usage", usedPercent: pct, detail: detail, resetsAt: cycleEnd))
+            windows.append(.init(title: "Included usage", usedPercent: pct, detail: detail, resetsAt: cycleEnd, periodStart: cycleStart))
         }
         if let pct = plan.autoPercentUsed.v, plan.apiPercentUsed.v != nil {
             windows.append(.init(title: "Cursor models (Auto)", usedPercent: pct, resetsAt: nil))

@@ -67,7 +67,9 @@ public struct CodexProvider: UsageProvider {
         guard let rl = latestRateLimits() else { return nil }
         var windows: [PlanStatus.Window] = []
         for w in [rl.primary, rl.secondary].compactMap({ $0 }) {
-            windows.append(.init(title: PlanStatus.windowTitle(minutes: w.windowMinutes), usedPercent: w.usedPercent, resetsAt: w.resetsAt))
+            let start = (w.windowMinutes > 0) ? w.resetsAt?.addingTimeInterval(-Double(w.windowMinutes) * 60) : nil
+            windows.append(.init(title: PlanStatus.windowTitle(minutes: w.windowMinutes), usedPercent: w.usedPercent,
+                                 resetsAt: w.resetsAt, periodStart: start))
         }
         let tier = rl.planType.flatMap { PlanPrices.chatGPT(planType: $0) }
         let name = tier?.name ?? rl.planType.map { "ChatGPT \($0)" }

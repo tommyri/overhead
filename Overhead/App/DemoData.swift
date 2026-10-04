@@ -75,13 +75,13 @@ enum DemoData {
         switch provider {
         case .codexCLI:
             return PlanStatus(planName: "ChatGPT Plus", observedAt: now.addingTimeInterval(-540), windows: [
-                .init(title: "5-hour window", usedPercent: 37, resetsAt: now.addingTimeInterval(2.1 * 3600)),
-                .init(title: "Weekly window", usedPercent: 62, resetsAt: cal.date(byAdding: .day, value: 3, to: now)),
+                .init(title: "5-hour window", usedPercent: 37, resetsAt: now.addingTimeInterval(2.1 * 3600), periodStart: now.addingTimeInterval(-2.9 * 3600)),
+                .init(title: "Weekly window", usedPercent: 84, resetsAt: cal.date(byAdding: .day, value: 3, to: now), periodStart: cal.date(byAdding: .day, value: -4, to: now)),
             ], note: "Codex usage on a ChatGPT plan is included in the subscription; the cost column is what the same tokens would cost on the API.",
                suggestedPlan: .init(name: "ChatGPT Plus", monthlyFeeUSD: 20, source: "Codex logs"))
         case .cursor:
             return PlanStatus(planName: "Cursor Pro", observedAt: now.addingTimeInterval(-60), windows: [
-                .init(title: "Included usage", usedPercent: 48, detail: "$9.60 of $20.00 included", resetsAt: cal.date(byAdding: .day, value: 11, to: now)),
+                .init(title: "Included usage", usedPercent: 48, detail: "$9.60 of $20.00 included", resetsAt: cal.date(byAdding: .day, value: 11, to: now), periodStart: cal.date(byAdding: .day, value: -19, to: now)),
                 .init(title: "Cursor models (Auto)", usedPercent: 55),
                 .init(title: "Other models", usedPercent: 31),
             ], note: nil, suggestedPlan: .init(name: "Cursor Pro", monthlyFeeUSD: 20, source: "cursor.com account"))
