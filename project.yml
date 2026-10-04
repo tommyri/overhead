@@ -13,7 +13,7 @@ settings:
       # default; notarization rejects binaries that carry it.
       CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
   base:
-    MARKETING_VERSION: "0.1.2"
+    MARKETING_VERSION: "0.3.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "6.0"
     MACOSX_DEPLOYMENT_TARGET: "15.0"

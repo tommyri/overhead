@@ -6,6 +6,8 @@ The release script uses a version's section below as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-04
+
 ### Documentation
 - `docs/DATA-SOURCES.md` explains how every type of data is gathered per provider: files and endpoints, deduplication, cost estimation, project and tier derivation, code-output counting, caching, and what is not collected.
 
