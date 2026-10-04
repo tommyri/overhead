@@ -89,5 +89,9 @@ echo "==> Done: $DMG"
 
 if [ "$PUBLISH" = 1 ]; then
   command -v gh >/dev/null || { echo "gh not found: brew install gh"; exit 1; }
-  gh release create "v$VERSION" "$DMG" "$DMG.sha256" --title "Overhead $VERSION" --generate-notes
+  if gh release view "v$VERSION" >/dev/null 2>&1; then
+    gh release upload "v$VERSION" "$DMG" "$DMG.sha256" --clobber
+  else
+    gh release create "v$VERSION" "$DMG" "$DMG.sha256" --title "Overhead $VERSION" --generate-notes
+  fi
 fi
