@@ -9,8 +9,10 @@
 import Foundation
 
 let input = FileHandle.standardInput.readDataToEndOfFile()
-let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-    .appendingPathComponent("Overhead", isDirectory: true)
+// OVERHEAD_SUPPORT_DIR overrides the output folder (used by tests; never set by Claude Code).
+let supportDir = ProcessInfo.processInfo.environment["OVERHEAD_SUPPORT_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+    ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        .appendingPathComponent("Overhead", isDirectory: true)
 let recordURL = supportDir.appendingPathComponent("claude-statusline.json")
 let chainURL = supportDir.appendingPathComponent("statusline-chain")
 
