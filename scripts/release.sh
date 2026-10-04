@@ -4,7 +4,7 @@
 #   scripts/release.sh <version> [--skip-notarize] [--publish]
 #
 # One-time setup (your Apple ID, an app-specific password from appleid.apple.com, your team):
-#   xcrun notarytool store-credentials llmoverview-notary \
+#   xcrun notarytool store-credentials overhead-notary \
 #       --apple-id you@example.com --team-id XXXXXXXXXX --password <app-specific-password>
 # Override the profile name with NOTARY_PROFILE=... ; --publish creates a GitHub release with gh.
 set -euo pipefail
@@ -20,11 +20,11 @@ for arg in "$@"; do
   esac
 done
 
-APP_NAME="LLM Overview"
-PROFILE="${NOTARY_PROFILE:-llmoverview-notary}"
+APP_NAME="Overhead"
+PROFILE="${NOTARY_PROFILE:-overhead-notary}"
 BUILD_NUMBER=$(git rev-list --count HEAD 2>/dev/null || echo 1)
 DIST="dist"; STAGE="$DIST/stage"
-DMG="$DIST/LLM-Overview-$VERSION.dmg"
+DMG="$DIST/Overhead-$VERSION.dmg"
 
 command -v xcodegen >/dev/null || { echo "xcodegen not found: brew install xcodegen"; exit 1; }
 line=$(security find-identity -v -p codesigning 2>/dev/null | grep -m1 '"Developer ID Application:' || true)
@@ -47,7 +47,7 @@ fi
 echo "==> Building $APP_NAME $VERSION ($BUILD_NUMBER)"
 xcodegen generate --quiet
 rm -rf "$DIST"; mkdir -p "$STAGE"
-xcodebuild -project LLMOverview.xcodeproj -scheme LLMOverview -configuration Release \
+xcodebuild -project Overhead.xcodeproj -scheme Overhead -configuration Release \
   -derivedDataPath build/DerivedData \
   MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$IDENTITY" DEVELOPMENT_TEAM="$TEAM" \
@@ -84,5 +84,5 @@ echo "==> Done: $DMG"
 
 if [ "$PUBLISH" = 1 ]; then
   command -v gh >/dev/null || { echo "gh not found: brew install gh"; exit 1; }
-  gh release create "v$VERSION" "$DMG" "$DMG.sha256" --title "LLM Overview $VERSION" --generate-notes
+  gh release create "v$VERSION" "$DMG" "$DMG.sha256" --title "Overhead $VERSION" --generate-notes
 fi

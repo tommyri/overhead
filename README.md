@@ -1,4 +1,4 @@
-# LLM Overview
+# Overhead
 
 A native macOS app (SwiftUI, menu bar + window) that shows how much you use and spend across LLM providers in one place: daily cost and token charts, per-model breakdowns, and a menu bar item with today's spend.
 
@@ -41,9 +41,9 @@ The session is stored in the macOS Keychain and sent only to `cursor.com`.
 
 ### Paid vs value
 
-Subscription sources (Codex on a ChatGPT plan, Cursor Pro/Pro+/Ultra, Claude Code on a seat) charge a flat monthly fee, so the per-token dollar figures the app computes for them are **API-equivalent value**, not spend: what the same tokens would have cost at the vendor's API list prices. The app detects the tier where it can and pre-fills the list price: Cursor from the account endpoint (`/api/auth/stripe`, which distinguishes Pro+ from Pro and knows about annual billing), Codex from the `plan_type` in its logs, Claude Code from the organization type and seat tier cached in `~/.claude.json`. Detected values can be edited in Settings → Providers → Billing; a typed fee is never overwritten, and "Use detected" switches back. Tier prices live in `LLMOverviewCore/Sources/LLMOverviewCore/Pricing/PlanPrices.swift` (Cursor Pro/Pro+/Ultra $20/$60/$200, ChatGPT Plus/Pro 100/Pro 200/Pro 500 $20/$100/$200/$500, Claude Pro/Max/Team seats; reviewed 2026-10-04). The dashboard then shows a "Paid vs value" table with the fee prorated to the selected range (a whole calendar month counts once; a 7-day range counts about a quarter of a month) next to the value used, and the value ÷ paid multiple. Pay-per-use providers show their billed cost as "paid".
+Subscription sources (Codex on a ChatGPT plan, Cursor Pro/Pro+/Ultra, Claude Code on a seat) charge a flat monthly fee, so the per-token dollar figures the app computes for them are **API-equivalent value**, not spend: what the same tokens would have cost at the vendor's API list prices. The app detects the tier where it can and pre-fills the list price: Cursor from the account endpoint (`/api/auth/stripe`, which distinguishes Pro+ from Pro and knows about annual billing), Codex from the `plan_type` in its logs, Claude Code from the organization type and seat tier cached in `~/.claude.json`. Detected values can be edited in Settings → Providers → Billing; a typed fee is never overwritten, and "Use detected" switches back. Tier prices live in `OverheadCore/Sources/OverheadCore/Pricing/PlanPrices.swift` (Cursor Pro/Pro+/Ultra $20/$60/$200, ChatGPT Plus/Pro 100/Pro 200/Pro 500 $20/$100/$200/$500, Claude Pro/Max/Team seats; reviewed 2026-10-04). The dashboard then shows a "Paid vs value" table with the fee prorated to the selected range (a whole calendar month counts once; a 7-day range counts about a quarter of a month) next to the value used, and the value ÷ paid multiple. Pay-per-use providers show their billed cost as "paid".
 
-Costs marked `≈` are estimates computed from the vendor's published list prices (`LLMOverviewCore/Sources/LLMOverviewCore/Pricing/PriceTable.swift`). Unmarked costs come straight from a billing endpoint.
+Costs marked `≈` are estimates computed from the vendor's published list prices (`OverheadCore/Sources/OverheadCore/Pricing/PriceTable.swift`). Unmarked costs come straight from a billing endpoint.
 
 ## Build & run
 
@@ -57,7 +57,7 @@ Install a signed Release build into /Applications (uses your Developer ID or App
 
 Pass a directory to install elsewhere, e.g. `./scripts/install.sh ~/Applications`.
 
-For development, `./scripts/run.sh` builds and launches from the build folder, or open `LLMOverview.xcodeproj` in Xcode (after `xcodegen generate`) and press Run.
+For development, `./scripts/run.sh` builds and launches from the build folder, or open `Overhead.xcodeproj` in Xcode (after `xcodegen generate`) and press Run.
 
 Settings → General has a "Launch at login" toggle (uses `SMAppService`; the app should live in /Applications for that).
 
@@ -66,13 +66,13 @@ Settings → General has a "Launch at login" toggle (uses `SMAppService`; the ap
 Downloads from GitHub are checked by Gatekeeper, so release builds are signed with a Developer ID certificate, notarized by Apple and stapled. One-time setup, with an app-specific password from account.apple.com:
 
 ```bash
-xcrun notarytool store-credentials llmoverview-notary --apple-id you@example.com --team-id XXXXXXXXXX --password <app-specific-password>
+xcrun notarytool store-credentials overhead-notary --apple-id you@example.com --team-id XXXXXXXXXX --password <app-specific-password>
 ```
 
 Then, for each release:
 
 ```bash
-./scripts/release.sh 0.1.0            # dist/LLM-Overview-0.1.0.dmg, notarized and stapled
+./scripts/release.sh 0.1.0            # dist/Overhead-0.1.0.dmg, notarized and stapled
 ./scripts/release.sh 0.1.0 --publish  # same, then creates the GitHub release with gh
 ```
 
@@ -80,22 +80,22 @@ The script builds Release with hardened runtime and a secure timestamp, notarize
 
 ### Core package tests and debug CLI
 
-The parsing/aggregation logic lives in the `LLMOverviewCore` Swift package and has no UI dependencies:
+The parsing/aggregation logic lives in the `OverheadCore` Swift package and has no UI dependencies:
 
 ```bash
-cd LLMOverviewCore
+cd OverheadCore
 swift test                      # parser + API adapter tests (mocked HTTP)
-swift run llmo 30               # print per-model totals from local logs for the last 30 days
+swift run overhead 30               # print per-model totals from local logs for the last 30 days
 ```
 
 ## Architecture
 
 ```
-LLMOverview/                 SwiftUI app (xcodegen target)
+Overhead/                 SwiftUI app (xcodegen target)
   App/AppModel.swift         @Observable state: records, statuses, credentials, refresh timer
   App/ProviderRegistry*.swift  which adapter backs each ProviderID
   Views/                     Dashboard, provider detail, settings, menu bar
-LLMOverviewCore/             Swift package, unit-tested
+OverheadCore/             Swift package, unit-tested
   Models/                    ProviderID, UsageRecord (normalized day × model row), DateRangePreset
   Providers/                 One UsageProvider per source (local log parsers + HTTP adapters)
   Pricing/PriceTable.swift   list prices used for estimates
@@ -105,16 +105,16 @@ LLMOverviewCore/             Swift package, unit-tested
 
 Every adapter emits `UsageRecord`s: one row per (provider, local calendar day, model) with input / output / cache-write / cache-read tokens, request count, and a cost that is `reported`, `estimated`, or `unknown`. The UI only understands that shape, so adding a provider means implementing `UsageProvider.fetch` and adding a case to `ProviderID`.
 
-Local parsers keep a per-file index (size + mtime → parsed entries) under `~/Library/Application Support/LLM Overview/index/`, so after the first run only new or changed session files are re-read. API results are cached under `.../LLM Overview/cache/` so the app shows data instantly on launch.
+Local parsers keep a per-file index (size + mtime → parsed entries) under `~/Library/Application Support/Overhead/index/`, so after the first run only new or changed session files are re-read. API results are cached under `.../Overhead/cache/` so the app shows data instantly on launch.
 
-Credentials are stored in the macOS Keychain (service `app.llmoverview`, the bundle identifier), never in files.
+Credentials are stored in the macOS Keychain (service `app.overhead`, the bundle identifier), never in files.
 
 ## Adding a provider
 
 1. Add a case to `ProviderID` (name, kind, palette slot, setup hint).
-2. Implement a `UsageProvider` in `LLMOverviewCore/Sources/LLMOverviewCore/Providers/`, declaring any `credentialFields`.
-3. Register it in `LLMOverview/App/ProviderRegistry+Providers.swift`.
-4. Add a fixture under `LLMOverviewCore/Tests/.../Fixtures` and a test.
+2. Implement a `UsageProvider` in `OverheadCore/Sources/OverheadCore/Providers/`, declaring any `credentialFields`.
+3. Register it in `Overhead/App/ProviderRegistry+Providers.swift`.
+4. Add a fixture under `OverheadCore/Tests/.../Fixtures` and a test.
 
 ## License
 
