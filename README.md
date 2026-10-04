@@ -49,6 +49,15 @@ Costs marked `≈` are estimates computed from the vendor's published list price
 
 Download the latest `Overhead-<version>.dmg` from the [Releases page](../../releases), open it and drag Overhead to Applications. Releases are signed with a Developer ID certificate and notarized by Apple.
 
+## Privacy
+
+Overhead runs entirely on your Mac and has no telemetry or backend of its own.
+
+- **Local sources** are read from files the tools already keep on disk: Claude Code transcripts under `~/.claude/projects` and Claude Code's account profile in `~/.claude.json`, Codex session logs under `~/.codex`. Only token counts, model names, timestamps and plan identifiers are extracted; prompt and response text is never parsed, stored or displayed.
+- **Network requests** go only to the vendor you configured: `api.anthropic.com`, `api.openai.com`, `api.cursor.com`, `cursor.com`, `management-api.x.ai`, `openrouter.ai`.
+- **Credentials** (API keys, the Cursor login session) live in the macOS Keychain under the app's bundle identifier. "Import from Cursor app" reads the session from a read-only private copy of Cursor's local state database only when you press the button; nothing is written back.
+- **Caches** of parsed usage are stored under `~/Library/Application Support/Overhead` and can be cleared from Settings → General.
+
 ## Build & run
 
 Requirements: Xcode 26+, [xcodegen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
