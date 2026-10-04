@@ -75,6 +75,8 @@ public protocol UsageProvider: Sendable {
     func planStatus(credentials: Credentials) async throws -> PlanStatus?
     /// Lines of code the tool produced, per day. Empty when the source has no such data.
     func codeActivity(interval: DateInterval, credentials: Credentials) async throws -> [CodeActivity]
+    /// Tool calls per tool and day. Empty when the source has no such data.
+    func toolActivity(interval: DateInterval, credentials: Credentials) async throws -> [ToolActivity]
 }
 
 public extension UsageProvider {
@@ -82,6 +84,7 @@ public extension UsageProvider {
     var credentialImports: [CredentialImport] { [] }
     func planStatus(credentials: Credentials) async throws -> PlanStatus? { nil }
     func codeActivity(interval: DateInterval, credentials: Credentials) async throws -> [CodeActivity] { [] }
+    func toolActivity(interval: DateInterval, credentials: Credentials) async throws -> [ToolActivity] { [] }
 
     func isConfigured(_ credentials: Credentials) -> Bool {
         credentialFields.filter { !$0.isOptional }.allSatisfy { field in

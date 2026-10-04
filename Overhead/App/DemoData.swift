@@ -98,6 +98,31 @@ enum DemoData {
         return out
     }
 
+    /// Tool calls per day with realistic mixes; a few percent fail.
+    static func toolActivity(now: Date = Date(), calendar: Calendar = .current) -> [ToolActivity] {
+        var rng = SeededGenerator(seed: 4242)
+        let today = calendar.startOfDay(for: now)
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let project = "\(home)/dev/overhead"
+        let claudeMix: [(String, Double, Double)] = [("Bash", 0.34, 0.06), ("Read", 0.24, 0.01), ("Edit", 0.17, 0.03), ("Write", 0.06, 0.01), ("Grep", 0.08, 0.0), ("Glob", 0.04, 0.0), ("WebFetch", 0.04, 0.08), ("Task", 0.03, 0.0)]
+        let codexMix: [(String, Double, Double)] = [("exec_command", 0.58, 0.07), ("apply_patch", 0.22, 0.04), ("write_stdin", 0.1, 0.02), ("update_plan", 0.07, 0.0), ("shell", 0.03, 0.05)]
+        var out: [ToolActivity] = []
+        for offset in stride(from: 29, through: 0, by: -1) {
+            let day = calendar.date(byAdding: .day, value: -offset, to: today)!
+            let weekday = calendar.component(.weekday, from: day)
+            let f = (weekday == 1 || weekday == 7 ? 0.2 : 1.0) * (0.5 + rng.nextDouble())
+            for (tool, share, errRate) in claudeMix {
+                let calls = Int(420 * f * share * (0.7 + rng.nextDouble() * 0.6))
+                if calls > 0 { out.append(ToolActivity(provider: .claudeCode, day: day, tool: tool, project: project, calls: calls, errors: Int(Double(calls) * errRate))) }
+            }
+            for (tool, share, errRate) in codexMix {
+                let calls = Int(260 * f * share * (0.7 + rng.nextDouble() * 0.6))
+                if calls > 0 { out.append(ToolActivity(provider: .codexCLI, day: day, tool: tool, project: project, calls: calls, errors: Int(Double(calls) * errRate))) }
+            }
+        }
+        return out
+    }
+
     static func planStatus(for provider: ProviderID, now: Date = Date()) -> PlanStatus? {
         let cal = Calendar.current
         switch provider {

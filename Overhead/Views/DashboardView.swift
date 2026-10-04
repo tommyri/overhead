@@ -88,6 +88,13 @@ struct DashboardView: View {
                             CodeOutputView(code: code, interval: model.currentInterval, providers: providers, showProvider: true)
                         }
                     }
+
+                    let tools = model.toolsInRange
+                    if !tools.isEmpty {
+                        ChartCard(title: "Tool usage") {
+                            ToolUsageView(tools: tools, requests: totals.requests, interval: model.currentInterval, providers: providers, showProvider: true)
+                        }
+                    }
                 }
             }
             .padding(20)
@@ -638,6 +645,107 @@ struct CodeOutputView: View {
         case "composer": return "Composer"
         default: return k
         }
+    }
+}
+
+// MARK: - Tool usage
+
+/// How often each tool was called and how often it failed, per day and per tool.
+struct ToolUsageView: View {
+    let tools: [ToolActivity]
+    /// Model requests in the same range, for the calls-per-request tile.
+    let requests: Int
+    let interval: DateInterval
+    let providers: [ProviderID]
+    var showProvider = true
+    var limit = 12
+    @State private var hoveredDay: Date? = nil
+
+    var body: some View {
+        let totals = UsageAggregator.toolTotals(tools)
+        let groups = UsageAggregator.toolTotalsByTool(tools)
+        let shown = Array(groups.prefix(limit))
+        let maxCalls = max(1, shown.first?.totals.calls ?? 1)
+        let present = providers.filter { p in tools.contains { $0.provider == p } }
+        let series = UsageAggregator.toolDailySeries(tools, in: interval, providers: present)
+
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 14) {
+                StatTile(title: "Tool calls", value: Fmt.count(totals.calls), footnote: "\(groups.count) distinct tools")
+                StatTile(title: "Per request", value: requests > 0 ? String(format: "%.1f", Double(totals.calls) / Double(requests)) : "—",
+                         footnote: requests > 0 ? "calls per model request" : nil)
+                StatTile(title: "Failed calls", value: Fmt.count(totals.errors),
+                         footnote: totals.errorRate.map { String(format: "%.1f%% of calls", $0 * 100) })
+                StatTile(title: "Per day", value: Fmt.count(totals.calls / max(1, dayCount)), footnote: "\(dayCount) days")
+            }
+
+            Chart(series) { p in
+                BarMark(x: .value("Day", p.day, unit: .day), y: .value("Calls", p.calls))
+                    .foregroundStyle(by: .value("Provider", p.provider.displayName))
+                    .cornerRadius(3)
+                    .opacity(hoveredDay == nil || Calendar.current.isDate(hoveredDay!, inSameDayAs: p.day) ? 1 : 0.45)
+            }
+            .chartForegroundStyleScale(domain: present.map(\.displayName), range: present.map(\.color))
+            .chartLegend(present.count > 1 ? .visible : .hidden)
+            .chartYAxis {
+                AxisMarks(position: .leading) { v in
+                    AxisGridLine().foregroundStyle(.quaternary)
+                    AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.tokens(Int(d))) } }
+                }
+            }
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 8)) { _ in
+                    AxisGridLine().foregroundStyle(.clear)
+                    AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                }
+            }
+            .chartXSelection(value: $hoveredDay)
+            .frame(height: 160)
+
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Tool").frame(maxWidth: .infinity, alignment: .leading)
+                    Text("Calls").frame(width: 80, alignment: .trailing)
+                    Text("Failed").frame(width: 80, alignment: .trailing)
+                    Text("Share").frame(width: 70, alignment: .trailing)
+                }
+                .font(.caption).foregroundStyle(.secondary).padding(.bottom, 6)
+                Divider()
+                ForEach(shown) { g in
+                    VStack(spacing: 4) {
+                        HStack {
+                            HStack(spacing: 6) {
+                                if showProvider { Circle().fill(g.provider.color).frame(width: 7, height: 7) }
+                                Text(Fmt.toolName(g.tool)).lineLimit(1).help(g.tool)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(Fmt.count(g.totals.calls)).frame(width: 80, alignment: .trailing).fontWeight(.medium)
+                            Text(g.totals.errors > 0 ? Fmt.count(g.totals.errors) : "—").frame(width: 80, alignment: .trailing)
+                                .foregroundStyle(g.totals.errors > 0 ? Color.orange : Color.secondary)
+                            Text(totals.calls > 0 ? String(format: "%.0f%%", Double(g.totals.calls) / Double(totals.calls) * 100) : "—")
+                                .frame(width: 70, alignment: .trailing).foregroundStyle(.secondary)
+                        }
+                        .font(.callout.monospacedDigit())
+                        GeometryReader { geo in
+                            Capsule().fill(g.provider.color.opacity(0.8))
+                                .frame(width: max(2, geo.size.width * CGFloat(g.totals.calls) / CGFloat(maxCalls)))
+                        }
+                        .frame(height: 3)
+                    }
+                    .padding(.vertical, 5)
+                    Divider()
+                }
+                if groups.count > shown.count {
+                    Text("+\(groups.count - shown.count) more tools").font(.caption).foregroundStyle(.secondary).padding(.top, 6)
+                }
+            }
+            Text("Claude Code: tool_use blocks and their results. Codex: function and custom tool calls with their exit codes. Cursor exposes no tool data.")
+                .font(.caption2).foregroundStyle(.tertiary)
+        }
+    }
+
+    private var dayCount: Int {
+        max(1, Calendar.current.dateComponents([.day], from: interval.start, to: interval.end).day ?? 1)
     }
 }
 

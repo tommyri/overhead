@@ -8,17 +8,20 @@ public actor UsageCache {
         public var fetchedAt: Date
         public var records: [UsageRecord]
         public var code: [CodeActivity]
-        public init(fetchedAt: Date, records: [UsageRecord], code: [CodeActivity] = []) {
+        public var tools: [ToolActivity]
+        public init(fetchedAt: Date, records: [UsageRecord], code: [CodeActivity] = [], tools: [ToolActivity] = []) {
             self.fetchedAt = fetchedAt
             self.records = records
             self.code = code
+            self.tools = tools
         }
-        enum CodingKeys: String, CodingKey { case fetchedAt, records, code }
+        enum CodingKeys: String, CodingKey { case fetchedAt, records, code, tools }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             fetchedAt = try c.decode(Date.self, forKey: .fetchedAt)
             records = try c.decode([UsageRecord].self, forKey: .records)
             code = try c.decodeIfPresent([CodeActivity].self, forKey: .code) ?? []
+            tools = try c.decodeIfPresent([ToolActivity].self, forKey: .tools) ?? []
         }
     }
 
@@ -52,9 +55,9 @@ public actor UsageCache {
         return try? decoder.decode(Snapshot.self, from: data)
     }
 
-    public func save(_ provider: ProviderID, records: [UsageRecord], code: [CodeActivity] = [], fetchedAt: Date = Date()) throws {
+    public func save(_ provider: ProviderID, records: [UsageRecord], code: [CodeActivity] = [], tools: [ToolActivity] = [], fetchedAt: Date = Date()) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let snap = Snapshot(fetchedAt: fetchedAt, records: records, code: code)
+        let snap = Snapshot(fetchedAt: fetchedAt, records: records, code: code, tools: tools)
         let data = try encoder.encode(snap)
         try data.write(to: url(for: provider), options: .atomic)
     }

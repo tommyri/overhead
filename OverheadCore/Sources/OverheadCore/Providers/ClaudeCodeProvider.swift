@@ -25,6 +25,9 @@ public struct ClaudeCodeProvider: UsageProvider {
         public var linesAdded: Int?
         public var linesRemoved: Int?
         public var edits: Int?
+        /// Tool calls in this response by tool name, and how many of them returned an error.
+        public var toolCalls: [String: Int]?
+        public var toolErrors: [String: Int]?
     }
 
     public var roots: [URL]
@@ -36,7 +39,7 @@ public struct ClaudeCodeProvider: UsageProvider {
             home.appendingPathComponent(".claude/projects", isDirectory: true),
             home.appendingPathComponent("Library/Application Support/Claude/local-agent-mode-sessions", isDirectory: true),
         ]
-        self.cache = ParsedFileCache(name: "claude-code-v3", directory: cacheDirectory)
+        self.cache = ParsedFileCache(name: "claude-code-v4", directory: cacheDirectory)
     }
 
     public func fetch(interval: DateInterval, credentials: Credentials) async throws -> [UsageRecord] {
@@ -139,12 +142,19 @@ public struct ClaudeCodeProvider: UsageProvider {
         // Edits proposed in a response, keyed by tool_use id, until their result arrives.
         var pendingEdits: [String: (entryKey: String, added: Int, removed: Int)] = [:]
         var applied: [String: (added: Int, removed: Int, edits: Int)] = [:]
+        // Every tool call, keyed by tool_use id, so its result can be marked as an error.
+        var pendingTools: [String: (entryKey: String, tool: String)] = [:]
+        var toolErrorsByEntry: [String: [String: Int]] = [:]
 
         try LogFiles.forEachLine(in: url) { line in
             if line.containsASCII("\"tool_result\""), line.containsASCII("\"type\":\"user\"") {
                 guard let rec = try? decoder.decode(Line.self, from: line), let blocks = rec.message?.content else { return }
                 for b in blocks where b.type == "tool_result" {
-                    guard let id = b.tool_use_id, let edit = pendingEdits.removeValue(forKey: id) else { continue }
+                    guard let id = b.tool_use_id else { continue }
+                    if let t = pendingTools.removeValue(forKey: id), b.is_error == true {
+                        toolErrorsByEntry[t.entryKey, default: [:]][t.tool, default: 0] += 1
+                    }
+                    guard let edit = pendingEdits.removeValue(forKey: id) else { continue }
                     if b.is_error != true {
                         var a = applied[edit.entryKey] ?? (0, 0, 0)
                         a.added += edit.added; a.removed += edit.removed; a.edits += 1
@@ -174,16 +184,49 @@ public struct ClaudeCodeProvider: UsageProvider {
             )
             if byKey[key] == nil { order.append(key) }
             byKey[key] = entry   // last occurrence wins (final output_tokens)
+            var calls: [String: Int] = [:]
             for b in msg.content ?? [] where b.type == "tool_use" {
-                guard let id = b.id, let name = b.name, let counts = Self.editLines(tool: name, input: b.input) else { continue }
-                pendingEdits[id] = (key, counts.added, counts.removed)
+                guard let id = b.id, let name = b.name else { continue }
+                calls[name, default: 0] += 1
+                pendingTools[id] = (key, name)
+                if let counts = Self.editLines(tool: name, input: b.input) { pendingEdits[id] = (key, counts.added, counts.removed) }
+            }
+            if !calls.isEmpty {
+                // Streaming writes the same response several times; the last line has every block.
+                byKey[key]?.toolCalls = calls
             }
         }
         return order.compactMap { k -> Entry? in
             guard var e = byKey[k] else { return nil }
             if let a = applied[k] { e.linesAdded = a.added; e.linesRemoved = a.removed; e.edits = a.edits }
+            if let errs = toolErrorsByEntry[k] { e.toolErrors = errs }
             return e
         }
+    }
+
+    public func toolActivity(interval: DateInterval, credentials: Credentials) async throws -> [ToolActivity] {
+        let files = roots.flatMap { root in LogFiles.enumerateIncludingHidden(root) { $0.pathExtension == "jsonl" } }
+        let entries = await cache.entries(for: files, parse: Self.parseFile)
+        return Self.aggregateTools(entries, provider: .claudeCode)
+    }
+
+    static func aggregateTools(_ entries: [Entry], provider: ProviderID, resolver: ProjectResolver = ProjectResolver()) -> [ToolActivity] {
+        var unique: [String: Entry] = [:]
+        for e in entries where !(e.toolCalls ?? [:]).isEmpty {
+            if let existing = unique[e.key], (existing.toolCalls ?? [:]).values.reduce(0, +) >= (e.toolCalls ?? [:]).values.reduce(0, +) { continue }
+            unique[e.key] = e
+        }
+        let projects = resolver.resolve(unique.values.map(\.cwd))
+        var out: [String: ToolActivity] = [:]
+        for e in unique.values {
+            let day = DayKey.startOfDay(e.timestamp)
+            let project = e.cwd.flatMap { projects[$0] }
+            for (tool, n) in e.toolCalls ?? [:] {
+                let item = ToolActivity(provider: provider, day: day, tool: tool, project: project, calls: n, errors: e.toolErrors?[tool] ?? 0)
+                if var existing = out[item.id] { existing.merge(item); out[item.id] = existing } else { out[item.id] = item }
+            }
+        }
+        return out.values.sorted { ($0.day, $0.tool) < ($1.day, $1.tool) }
     }
 
     /// Lines an edit tool call would add/remove. nil for tools that do not write code.

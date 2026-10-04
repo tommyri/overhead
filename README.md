@@ -1,6 +1,6 @@
 # Overhead
 
-A native macOS app (SwiftUI, menu bar + window) that shows how much you use and spend across LLM providers in one place: daily cost and token charts, per-model and per-project breakdowns, lines of AI-written code per tool, paid vs value for your subscriptions, month-end projections, plan-limit alerts, and a menu bar item with today's spend.
+A native macOS app (SwiftUI, menu bar + window) that shows how much you use and spend across LLM providers in one place: daily cost and token charts, per-model and per-project breakdowns, lines of AI-written code and tool-call statistics per tool, paid vs value for your subscriptions, month-end projections, plan-limit alerts, and a menu bar item with today's spend.
 
 ## Screenshots
 
@@ -9,6 +9,8 @@ A native macOS app (SwiftUI, menu bar + window) that shows how much you use and 
 ![By project: usage and value per working directory, split by tool](docs/screenshots/projects.png)
 
 ![AI code output: lines accepted per day by tool, with suggested vs accepted for Cursor](docs/screenshots/code.png)
+
+![Tool usage: calls and failures per tool for Claude Code and Codex](docs/screenshots/tools.png)
 
 | Provider page with plan limits (Codex) | Provider page with plan limits (Cursor) |
 |---|---|

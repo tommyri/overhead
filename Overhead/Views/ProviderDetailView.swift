@@ -79,6 +79,13 @@ struct ProviderDetailView: View {
                         }
                     }
 
+                    let tools = model.tools(for: provider)
+                    if !tools.isEmpty {
+                        ChartCard(title: "Tool usage") {
+                            ToolUsageView(tools: tools, requests: totals.requests, interval: model.currentInterval, providers: [provider], showProvider: false)
+                        }
+                    }
+
                     ChartCard(title: "Token breakdown") {
                         TokenBreakdown(totals: totals)
                     }

@@ -59,6 +59,7 @@ final class AppModel {
     // MARK: Live state
     private(set) var recordsByProvider: [ProviderID: [UsageRecord]] = [:]
     private(set) var codeByProvider: [ProviderID: [CodeActivity]] = [:]
+    private(set) var toolsByProvider: [ProviderID: [ToolActivity]] = [:]
     private(set) var statusByProvider: [ProviderID: FetchStatus] = [:]
     private(set) var credentials: Credentials = [:]
     var selectedProvider: ProviderID? = nil {
@@ -115,9 +116,11 @@ final class AppModel {
         if isDemo {
             let all = DemoData.records()
             let allCode = DemoData.codeActivity()
+            let allTools = DemoData.toolActivity()
             for p in DemoData.providers {
                 recordsByProvider[p] = all.filter { $0.provider == p }
                 codeByProvider[p] = allCode.filter { $0.provider == p }
+                toolsByProvider[p] = allTools.filter { $0.provider == p }
                 statusByProvider[p] = .ok(Date().addingTimeInterval(-90))
                 planStatus[p] = DemoData.planStatus(for: p)
             }
@@ -131,6 +134,7 @@ final class AppModel {
             if let snap = await cache.load(p) {
                 recordsByProvider[p] = snap.records
                 codeByProvider[p] = snap.code
+                toolsByProvider[p] = snap.tools
                 statusByProvider[p] = .ok(snap.fetchedAt)
             }
         }
@@ -243,8 +247,10 @@ final class AppModel {
             recordsByProvider[id] = records
             let code = (try? await provider.codeActivity(interval: interval, credentials: creds)) ?? []
             codeByProvider[id] = code
+            let tools = (try? await provider.toolActivity(interval: interval, credentials: creds)) ?? []
+            toolsByProvider[id] = tools
             statusByProvider[id] = .ok(Date())
-            try? await cache.save(id, records: records, code: code)
+            try? await cache.save(id, records: records, code: code, tools: tools)
             await loadPlanStatus(id)
         } catch {
             // Keep stale cached data visible, just mark the error.
@@ -281,6 +287,18 @@ final class AppModel {
 
     func code(for provider: ProviderID) -> [CodeActivity] {
         UsageAggregator.filter(codeByProvider[provider] ?? [], in: currentInterval)
+    }
+
+    var allTools: [ToolActivity] {
+        toolsByProvider.filter { enabledProviders.contains($0.key) }.values.flatMap { $0 }
+    }
+
+    var toolsInRange: [ToolActivity] {
+        UsageAggregator.filter(allTools, in: currentInterval)
+    }
+
+    func tools(for provider: ProviderID) -> [ToolActivity] {
+        UsageAggregator.filter(toolsByProvider[provider] ?? [], in: currentInterval)
     }
 
     func records(for provider: ProviderID) -> [UsageRecord] {
@@ -395,6 +413,7 @@ final class AppModel {
     func clearData(for id: ProviderID) async {
         recordsByProvider[id] = nil
         codeByProvider[id] = nil
+        toolsByProvider[id] = nil
         planStatus[id] = nil
         statusByProvider[id] = .idle
         await cache.clear(id)

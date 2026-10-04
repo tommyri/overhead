@@ -28,6 +28,10 @@ public struct CodexProvider: UsageProvider {
         public var linesAdded: Int?
         public var linesRemoved: Int?
         public var edits: Int?
+        /// Tool calls (function and custom tool calls) completed before this response's usage
+        /// record, by tool name, and how many returned a non-zero exit code.
+        public var toolCalls: [String: Int]?
+        public var toolErrors: [String: Int]?
     }
 
     /// Latest plan rate-limit snapshot found in the logs (ChatGPT-subscription users).
@@ -52,7 +56,7 @@ public struct CodexProvider: UsageProvider {
             home.appendingPathComponent(".codex/sessions", isDirectory: true),
             home.appendingPathComponent(".codex/archived_sessions", isDirectory: true),
         ]
-        self.cache = ParsedFileCache(name: "codex-v3", directory: cacheDirectory)
+        self.cache = ParsedFileCache(name: "codex-v4", directory: cacheDirectory)
     }
 
     public func fetch(interval: DateInterval, credentials: Credentials) async throws -> [UsageRecord] {
@@ -165,10 +169,18 @@ public struct CodexProvider: UsageProvider {
         var currentCwd: String? = nil
         var pendingPatches: [String: (added: Int, removed: Int)] = [:]   // by call_id, until the output arrives
         var appliedSinceLastUsage = (added: 0, removed: 0, edits: 0)
+        var pendingTools: [String: String] = [:]                          // call_id → tool name
+        var toolCallsSinceLastUsage: [String: Int] = [:]
+        var toolErrorsSinceLastUsage: [String: Int] = [:]
         func attach(_ e: inout Entry) {
             if appliedSinceLastUsage.edits > 0 {
                 e.linesAdded = appliedSinceLastUsage.added; e.linesRemoved = appliedSinceLastUsage.removed; e.edits = appliedSinceLastUsage.edits
                 appliedSinceLastUsage = (0, 0, 0)
+            }
+            if !toolCallsSinceLastUsage.isEmpty {
+                e.toolCalls = toolCallsSinceLastUsage
+                e.toolErrors = toolErrorsSinceLastUsage.isEmpty ? nil : toolErrorsSinceLastUsage
+                toolCallsSinceLastUsage = [:]; toolErrorsSinceLastUsage = [:]
             }
         }
         var modelByTurn: [String: String] = [:]
@@ -183,21 +195,32 @@ public struct CodexProvider: UsageProvider {
             let isMeta = line.containsASCII("\"session_meta\"")
             let isUsageRecord = line.containsASCII("\"token_usage_record\"")
             let isTokenCount = line.containsASCII("\"token_count\"")
-            let isPatch = line.containsASCII("\"custom_tool_call") && (line.containsASCII("apply_patch") || line.containsASCII("custom_tool_call_output"))
-            guard isTurn || isMeta || isUsageRecord || isTokenCount || isPatch else { return }
+            let isTool = line.containsASCII("\"custom_tool_call") || line.containsASCII("\"function_call")
+            guard isTurn || isMeta || isUsageRecord || isTokenCount || isTool else { return }
             guard let rec = try? decoder.decode(Line.self, from: line), let payload = rec.payload else { return }
             let date = rec.timestamp.flatMap { LogFiles.parseDate($0, fractional: iso, plain: isoPlain) }
 
             switch rec.type {
             case "response_item":
-                if payload.type == "custom_tool_call", payload.name == "apply_patch", let id = payload.call_id, let patch = payload.input {
-                    pendingPatches[id] = CodeActivity.diffCounts(patch)
-                } else if payload.type == "custom_tool_call_output", let id = payload.call_id, let counts = pendingPatches.removeValue(forKey: id) {
-                    if (payload.output ?? "").contains("Success") {
+                switch payload.type {
+                case "custom_tool_call", "function_call":
+                    guard let id = payload.call_id, let name = payload.name else { return }
+                    pendingTools[id] = name
+                    toolCallsSinceLastUsage[name, default: 0] += 1
+                    if name == "apply_patch", let patch = payload.input { pendingPatches[id] = CodeActivity.diffCounts(patch) }
+                case "custom_tool_call_output", "function_call_output":
+                    guard let id = payload.call_id else { return }
+                    let output = payload.output ?? ""
+                    if let name = pendingTools.removeValue(forKey: id), Self.outputIsError(output) {
+                        toolErrorsSinceLastUsage[name, default: 0] += 1
+                    }
+                    if let counts = pendingPatches.removeValue(forKey: id), output.contains("Success") {
                         appliedSinceLastUsage.added += counts.added
                         appliedSinceLastUsage.removed += counts.removed
                         appliedSinceLastUsage.edits += 1
                     }
+                default:
+                    break
                 }
             case "session_meta":
                 if currentCwd == nil, let c = UsageRecord.projectKey(payload.cwd) { currentCwd = c }
@@ -246,6 +269,40 @@ public struct CodexProvider: UsageProvider {
         let files = roots.flatMap { root in LogFiles.enumerate(root) { $0.pathExtension == "jsonl" } }
         let entries = await cache.entries(for: files, parse: Self.parseFile)
         return Self.aggregateCode(entries)
+    }
+
+    public func toolActivity(interval: DateInterval, credentials: Credentials) async throws -> [ToolActivity] {
+        let files = roots.flatMap { root in LogFiles.enumerate(root) { $0.pathExtension == "jsonl" } }
+        let entries = await cache.entries(for: files, parse: Self.parseFile)
+        return Self.aggregateTools(entries)
+    }
+
+    /// Codex tool outputs are JSON strings like {"output":"…","metadata":{"exit_code":1}}.
+    /// A non-zero exit code, or a failed patch verification, counts as an error.
+    static func outputIsError(_ output: String) -> Bool {
+        if let data = output.data(using: .utf8),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let meta = obj["metadata"] as? [String: Any],
+           let code = meta["exit_code"] as? Int {
+            return code != 0
+        }
+        return output.contains("verification failed") || output.hasPrefix("error") || output.hasPrefix("Error")
+    }
+
+    public static func aggregateTools(_ entries: [Entry], resolver: ProjectResolver = ProjectResolver()) -> [ToolActivity] {
+        var unique: [String: Entry] = [:]
+        for e in entries where !(e.toolCalls ?? [:]).isEmpty && unique[e.key] == nil { unique[e.key] = e }
+        let projects = resolver.resolve(unique.values.map(\.cwd))
+        var out: [String: ToolActivity] = [:]
+        for e in unique.values {
+            let day = DayKey.startOfDay(e.timestamp)
+            let project = e.cwd.flatMap { projects[$0] }
+            for (tool, n) in e.toolCalls ?? [:] {
+                let item = ToolActivity(provider: .codexCLI, day: day, tool: tool, project: project, calls: n, errors: e.toolErrors?[tool] ?? 0)
+                if var existing = out[item.id] { existing.merge(item); out[item.id] = existing } else { out[item.id] = item }
+            }
+        }
+        return out.values.sorted { ($0.day, $0.tool) < ($1.day, $1.tool) }
     }
 
     public static func aggregateCode(_ entries: [Entry], resolver: ProjectResolver = ProjectResolver()) -> [CodeActivity] {

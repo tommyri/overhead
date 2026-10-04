@@ -11,6 +11,7 @@ The code paths referenced live in `OverheadCore/Sources/OverheadCore/` unless no
 | `UsageRecord` | One row per provider × local calendar day × model × project: input, output, cache-write and cache-read tokens, request count, and a cost that is `reported` (from a billing endpoint), `estimated` (from list prices, shown with ≈) or `unknown`. | every provider's `fetch` |
 | `PlanStatus` | Subscription consumption: named windows with a used percentage, reset time and period start, plus the detected tier and its list price. | `planStatus` on Codex, Cursor, Claude Code |
 | `CodeActivity` | One row per provider × day × kind × project: lines added, lines removed, lines suggested, number of edits. | `codeActivity` on Claude Code, Codex, Cursor |
+| `ToolActivity` | One row per provider × day × tool × project: number of calls and how many returned an error. | `toolActivity` on Claude Code, Codex |
 
 Conventions that apply across providers:
 
@@ -34,6 +35,8 @@ Conventions that apply across providers:
 
 **Code output.** Within each assistant line, `tool_use` blocks named `Edit`, `Write`, `MultiEdit` or `NotebookEdit` are counted: added lines from `new_string` / `content` / `new_source`, removed lines from `old_string`. The count is attributed to the response only when the matching `tool_result` block in a later user line (same `tool_use_id`) does not have `is_error: true`, so rejected or failed edits are excluded. Edits whose result never arrives are not counted.
 
+**Tool usage.** Every `tool_use` block in an assistant line counts one call for its `name` (Bash, Read, Edit, Grep, WebFetch, Task, …). The call is marked failed when the matching `tool_result` has `is_error: true`. Tool inputs other than the edit fields above are not decoded.
+
 **Not read.** Prompt or response text is never parsed, stored or displayed; the parser decodes only the fields above.
 
 ## 3. Codex CLI
@@ -50,6 +53,8 @@ Conventions that apply across providers:
 
 **Code output.** `response_item` lines with `payload.type == "custom_tool_call"` and `name == "apply_patch"` contain the patch in `payload.input`; added and removed lines are the `+`/`-` lines of the patch (directive and header lines excluded). The count is applied only when the matching `custom_tool_call_output` (same `call_id`) contains "Success", and is attributed to the next usage record in the file.
 
+**Tool usage.** `response_item` lines of type `function_call` (exec_command, shell, write_stdin, update_plan, …) and `custom_tool_call` (exec, apply_patch) each count one call for `payload.name`. The matching `*_output` line's `output` is a JSON string whose `metadata.exit_code` marks the call as failed when non-zero; a patch whose output reports a verification failure counts as failed too. Calls are attributed to the next usage record in the file, like patches.
+
 ## 4. Cursor
 
 Cursor stores no per-request token data locally, so usage comes from Cursor's servers.
@@ -59,7 +64,7 @@ Cursor stores no per-request token data locally, so usage comes from Cursor's se
 - *Credential.* The `WorkosCursorSessionToken` cookie value, `<user id>::<JWT>`. You paste it from the browser, or press "Import from Cursor app", which reads `cursorAuth/accessToken` from a private, read-only copy of `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` (the write-ahead log is copied too so a freshly refreshed token is seen) and takes the user id from the JWT's `sub` claim. Nothing is written back and the refresh token is not touched. The JWT's expiry is checked before use.
 - *Usage.* `POST https://cursor.com/api/dashboard/get-filtered-usage-events` with `teamId: 0`, epoch-millisecond `startDate`/`endDate` as strings, 500 events per page, and the `Origin: https://cursor.com` header the server requires. Each event gives `model`, `tokenUsage` (input, output, cache write, cache read) and `chargedCents`, the amount deducted from the plan; numbers may arrive as strings and are decoded leniently. Events have no stable id, so pages are deduplicated by a fingerprint of timestamp, model, tokens and cents. Cost is `reported` (charged cents ÷ 100).
 - *Plan status.* `GET /api/usage-summary` gives the included-usage percentage, the Auto and Other model pools, the billing cycle, and `membershipType`; `GET /api/auth/stripe` gives `individualMembershipType` (which distinguishes Pro+ from Pro) and annual billing. The dollar detail is shown only when it agrees with the percentage, since the two are known to disagree on some plans.
-- *Not available.* Events carry no working directory, so Cursor usage has no project.
+- *Not available.* Events carry no working directory, so Cursor usage has no project, and nothing Cursor exposes locally or over these endpoints describes tool calls.
 
 **Team plans.** The documented Admin API: `POST https://api.cursor.com/teams/filtered-usage-events` with HTTP Basic auth (team key as username), 30-day windows, same token and cents fields.
 

@@ -19,6 +19,15 @@ enum Fmt {
         usd(c.value, estimate: c.isEstimate)
     }
 
+    /// "mcp__Claude_Browser__browser_batch" → "Claude Browser · browser_batch"; others unchanged.
+    static func toolName(_ raw: String) -> String {
+        guard raw.hasPrefix("mcp__") else { return raw }
+        let parts = raw.dropFirst(5).components(separatedBy: "__")
+        guard parts.count >= 2 else { return raw }
+        let server = parts[0].replacingOccurrences(of: "_", with: " ")
+        return "\(server) · \(parts.dropFirst().joined(separator: "__"))"
+    }
+
     static func multiple(_ m: Double?) -> String {
         guard let m else { return "—" }
         return m >= 10 ? String(format: "%.0f×", m) : String(format: "%.1f×", m)
