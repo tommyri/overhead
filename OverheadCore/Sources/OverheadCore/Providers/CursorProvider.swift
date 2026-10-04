@@ -75,6 +75,25 @@ public struct CursorProvider: UsageProvider {
         return try await fetchPlanStatus(cookie: try Self.cookieValue(from: raw))
     }
 
+    // MARK: Code output (local, no credentials needed)
+
+    public var localStateDatabase: URL = CursorLocalSession.defaultDatabaseURL
+
+    public func codeActivity(interval: DateInterval, credentials: Credentials) async throws -> [CodeActivity] {
+        let stats = try CursorLocalSession.dailyCodeStats(databaseURL: localStateDatabase)
+        var out: [CodeActivity] = []
+        for s in stats {
+            guard let date = s.date, let day = DayKey.localDay(fromISOPrefix: date) else { continue }
+            if (s.tabSuggestedLines ?? 0) + (s.tabAcceptedLines ?? 0) > 0 {
+                out.append(CodeActivity(provider: .cursor, day: day, kind: "tab", linesAdded: s.tabAcceptedLines ?? 0, suggestedLines: s.tabSuggestedLines ?? 0))
+            }
+            if (s.composerSuggestedLines ?? 0) + (s.composerAcceptedLines ?? 0) > 0 {
+                out.append(CodeActivity(provider: .cursor, day: day, kind: "composer", linesAdded: s.composerAcceptedLines ?? 0, suggestedLines: s.composerSuggestedLines ?? 0))
+            }
+        }
+        return out.sorted { ($0.day, $0.kind) < ($1.day, $1.kind) }
+    }
+
     // MARK: Session cookie
 
     /// Accepts anything a user is likely to paste and returns `user_x%3A%3A<jwt>`:

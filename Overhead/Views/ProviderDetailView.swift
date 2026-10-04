@@ -72,6 +72,13 @@ struct ProviderDetailView: View {
                         }
                     }
 
+                    let code = model.code(for: provider)
+                    if !code.isEmpty {
+                        ChartCard(title: "AI code output") {
+                            CodeOutputView(code: code, interval: model.currentInterval, providers: [provider], showProvider: false)
+                        }
+                    }
+
                     ChartCard(title: "Token breakdown") {
                         TokenBreakdown(totals: totals)
                     }

@@ -20,6 +20,11 @@ public struct ClaudeCodeProvider: UsageProvider {
         public var cacheRead: Int
         /// Working directory of the session, when recorded.
         public var cwd: String?
+        /// Lines added/removed by Edit/Write/MultiEdit/NotebookEdit calls in this response
+        /// whose tool result was not an error, and how many such edits there were.
+        public var linesAdded: Int?
+        public var linesRemoved: Int?
+        public var edits: Int?
     }
 
     public var roots: [URL]
@@ -31,7 +36,7 @@ public struct ClaudeCodeProvider: UsageProvider {
             home.appendingPathComponent(".claude/projects", isDirectory: true),
             home.appendingPathComponent("Library/Application Support/Claude/local-agent-mode-sessions", isDirectory: true),
         ]
-        self.cache = ParsedFileCache(name: "claude-code-v2", directory: cacheDirectory)
+        self.cache = ParsedFileCache(name: "claude-code-v3", directory: cacheDirectory)
     }
 
     public func fetch(interval: DateInterval, credentials: Credentials) async throws -> [UsageRecord] {
@@ -84,6 +89,32 @@ public struct ClaudeCodeProvider: UsageProvider {
             let id: String?
             let model: String?
             let usage: Usage?
+            let content: [Block]?
+            // A plain-string `content` is not an array; treat it as no blocks.
+            enum CodingKeys: String, CodingKey { case id, model, usage, content }
+            init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                id = try c.decodeIfPresent(String.self, forKey: .id)
+                model = try c.decodeIfPresent(String.self, forKey: .model)
+                usage = try c.decodeIfPresent(Usage.self, forKey: .usage)
+                content = try? c.decodeIfPresent([Block].self, forKey: .content)
+            }
+        }
+        struct Block: Decodable {
+            let type: String?
+            let id: String?
+            let name: String?
+            let input: EditInput?
+            let tool_use_id: String?
+            let is_error: Bool?
+        }
+        struct EditInput: Decodable {
+            let old_string: String?
+            let new_string: String?
+            let content: String?
+            let new_source: String?
+            let edits: [SubEdit]?
+            struct SubEdit: Decodable { let old_string: String?; let new_string: String? }
         }
         struct Usage: Decodable {
             let input_tokens: Int?
@@ -105,8 +136,23 @@ public struct ClaudeCodeProvider: UsageProvider {
         let isoPlain = ISO8601DateFormatter()
         var byKey: [String: Entry] = [:]
         var order: [String] = []
+        // Edits proposed in a response, keyed by tool_use id, until their result arrives.
+        var pendingEdits: [String: (entryKey: String, added: Int, removed: Int)] = [:]
+        var applied: [String: (added: Int, removed: Int, edits: Int)] = [:]
 
         try LogFiles.forEachLine(in: url) { line in
+            if line.containsASCII("\"tool_result\""), line.containsASCII("\"type\":\"user\"") {
+                guard let rec = try? decoder.decode(Line.self, from: line), let blocks = rec.message?.content else { return }
+                for b in blocks where b.type == "tool_result" {
+                    guard let id = b.tool_use_id, let edit = pendingEdits.removeValue(forKey: id) else { continue }
+                    if b.is_error != true {
+                        var a = applied[edit.entryKey] ?? (0, 0, 0)
+                        a.added += edit.added; a.removed += edit.removed; a.edits += 1
+                        applied[edit.entryKey] = a
+                    }
+                }
+                return
+            }
             guard line.containsASCII("\"type\":\"assistant\"") else { return }
             guard let rec = try? decoder.decode(Line.self, from: line), rec.type == "assistant",
                   let msg = rec.message, let usage = msg.usage,
@@ -128,8 +174,58 @@ public struct ClaudeCodeProvider: UsageProvider {
             )
             if byKey[key] == nil { order.append(key) }
             byKey[key] = entry   // last occurrence wins (final output_tokens)
+            for b in msg.content ?? [] where b.type == "tool_use" {
+                guard let id = b.id, let name = b.name, let counts = Self.editLines(tool: name, input: b.input) else { continue }
+                pendingEdits[id] = (key, counts.added, counts.removed)
+            }
         }
-        return order.compactMap { byKey[$0] }
+        return order.compactMap { k -> Entry? in
+            guard var e = byKey[k] else { return nil }
+            if let a = applied[k] { e.linesAdded = a.added; e.linesRemoved = a.removed; e.edits = a.edits }
+            return e
+        }
+    }
+
+    /// Lines an edit tool call would add/remove. nil for tools that do not write code.
+    private static func editLines(tool: String, input: Line.EditInput?) -> (added: Int, removed: Int)? {
+        switch tool {
+        case "Edit":
+            return (CodeActivity.lineCount(input?.new_string), CodeActivity.lineCount(input?.old_string))
+        case "MultiEdit":
+            var a = 0, r = 0
+            for e in input?.edits ?? [] { a += CodeActivity.lineCount(e.new_string); r += CodeActivity.lineCount(e.old_string) }
+            return (a, r)
+        case "Write":
+            return (CodeActivity.lineCount(input?.content), 0)
+        case "NotebookEdit":
+            return (CodeActivity.lineCount(input?.new_source), 0)
+        default:
+            return nil
+        }
+    }
+
+    public func codeActivity(interval: DateInterval, credentials: Credentials) async throws -> [CodeActivity] {
+        let files = roots.flatMap { root in LogFiles.enumerateIncludingHidden(root) { $0.pathExtension == "jsonl" } }
+        let entries = await cache.entries(for: files, parse: Self.parseFile)
+        return Self.aggregateCode(entries)
+    }
+
+    public static func aggregateCode(_ entries: [Entry], resolver: ProjectResolver = ProjectResolver()) -> [CodeActivity] {
+        var unique: [String: Entry] = [:]
+        for e in entries where (e.edits ?? 0) > 0 {
+            if let existing = unique[e.key], (existing.edits ?? 0) >= (e.edits ?? 0) { continue }
+            unique[e.key] = e
+        }
+        let projects = resolver.resolve(unique.values.map(\.cwd))
+        var out: [String: CodeActivity] = [:]
+        for e in unique.values {
+            let day = DayKey.startOfDay(e.timestamp)
+            let project = e.cwd.flatMap { projects[$0] }
+            let item = CodeActivity(provider: .claudeCode, day: day, kind: "edits", project: project,
+                                    linesAdded: e.linesAdded ?? 0, linesRemoved: e.linesRemoved ?? 0, edits: e.edits ?? 0)
+            if var existing = out[item.id] { existing.merge(item); out[item.id] = existing } else { out[item.id] = item }
+        }
+        return out.values.sorted { ($0.day, $0.project ?? "") < ($1.day, $1.project ?? "") }
     }
 
     /// Global dedupe (same response can appear in an audit log and a nested transcript),

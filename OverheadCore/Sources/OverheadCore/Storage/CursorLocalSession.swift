@@ -44,6 +44,26 @@ public enum CursorLocalSession {
         try? readItem(key: "cursorAuth/stripeMembershipType", databaseURL: databaseURL)
     }
 
+    /// Daily AI code statistics Cursor keeps locally (`aiCodeTracking.dailyStats.*`), one per day.
+    public struct DailyCodeStats: Decodable, Sendable {
+        public let date: String?
+        public let tabSuggestedLines: Int?
+        public let tabAcceptedLines: Int?
+        public let composerSuggestedLines: Int?
+        public let composerAcceptedLines: Int?
+    }
+
+    public static func dailyCodeStats(databaseURL: URL = defaultDatabaseURL) throws -> [DailyCodeStats] {
+        guard FileManager.default.fileExists(atPath: databaseURL.path) else { return [] }
+        let rows = try readItems(prefix: "aiCodeTracking.dailyStats.", databaseURL: databaseURL)
+        let decoder = JSONDecoder()
+        return rows.compactMap { key, value in
+            guard var stats = try? decoder.decode(DailyCodeStats.self, from: Data(value.utf8)) else { return nil }
+            if stats.date == nil, let last = key.split(separator: ".").last { stats = DailyCodeStats(date: String(last), tabSuggestedLines: stats.tabSuggestedLines, tabAcceptedLines: stats.tabAcceptedLines, composerSuggestedLines: stats.composerSuggestedLines, composerAcceptedLines: stats.composerAcceptedLines) }
+            return stats
+        }
+    }
+
     // MARK: SQLite
 
     /// Cursor keeps the store in WAL mode with its connection open. We snapshot the main file
@@ -90,6 +110,46 @@ public enum CursorLocalSession {
             guard let cstr = sqlite3_column_text(stmt, 0) else { return nil }
             return String(cString: cstr)
         }
+    }
+
+    /// All ItemTable rows whose key starts with `prefix`, read from a private snapshot.
+    static func readItems(prefix: String, databaseURL: URL) throws -> [(key: String, value: String)] {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("overhead-cursor-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: dir) }
+        let copy = dir.appendingPathComponent("state.vscdb")
+        try fm.copyItem(at: databaseURL, to: copy)
+        let wal = URL(fileURLWithPath: databaseURL.path + "-wal")
+        if fm.fileExists(atPath: wal.path) { try? fm.copyItem(at: wal, to: URL(fileURLWithPath: copy.path + "-wal")) }
+
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(copy.path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let db else {
+            let msg = db.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown error"
+            sqlite3_close(db); throw ImportError.cannotOpen(msg)
+        }
+        defer { sqlite3_close(db) }
+        sqlite3_busy_timeout(db, 500)
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT key, value FROM ItemTable WHERE key LIKE ? ESCAPE '\\'", -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            throw ImportError.cannotOpen(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(stmt) }
+        let pattern = prefix.replacingOccurrences(of: "_", with: "\\_") + "%"
+        sqlite3_bind_text(stmt, 1, pattern, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        var out: [(String, String)] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let k = sqlite3_column_text(stmt, 0) else { continue }
+            let key = String(cString: k)
+            let value: String?
+            if sqlite3_column_type(stmt, 1) == SQLITE_BLOB, let bytes = sqlite3_column_blob(stmt, 1) {
+                value = String(data: Data(bytes: bytes, count: Int(sqlite3_column_bytes(stmt, 1))), encoding: .utf8)
+            } else if let v = sqlite3_column_text(stmt, 1) {
+                value = String(cString: v)
+            } else { value = nil }
+            if let value { out.append((key, value)) }
+        }
+        return out
     }
 
     /// Decode the `sub` claim of a JWT without verifying it (we only need the user id).

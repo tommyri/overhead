@@ -81,6 +81,13 @@ struct DashboardView: View {
                             ProjectTable(projects: projects, limit: 10, showProvider: true)
                         }
                     }
+
+                    let code = model.codeInRange
+                    if !code.isEmpty {
+                        ChartCard(title: "AI code output") {
+                            CodeOutputView(code: code, interval: model.currentInterval, providers: providers, showProvider: true)
+                        }
+                    }
                 }
             }
             .padding(20)
@@ -533,6 +540,104 @@ struct MonthForecastTable: View {
         }
         .padding(.bottom, 0)
         .onAppear { _ = month }
+    }
+}
+
+// MARK: - AI code output
+
+/// Lines of code accepted from AI tools per day, with suggested-vs-accepted where known.
+struct CodeOutputView: View {
+    let code: [CodeActivity]
+    let interval: DateInterval
+    let providers: [ProviderID]
+    var showProvider = true
+    @State private var hoveredDay: Date? = nil
+
+    var body: some View {
+        let totals = UsageAggregator.codeTotals(code)
+        // Acceptance is only meaningful for sources that report suggestions (Cursor).
+        let suggested = UsageAggregator.codeTotals(code.filter { $0.suggestedLines > 0 })
+        let groups = UsageAggregator.codeTotalsByProviderAndKind(code)
+        let present = providers.filter { p in code.contains { $0.provider == p } }
+        let series = UsageAggregator.codeDailySeries(code, in: interval, providers: present)
+
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 14) {
+                StatTile(title: "Lines accepted", value: Fmt.count(totals.linesAdded), footnote: totals.linesRemoved > 0 ? "\(Fmt.count(totals.linesRemoved)) removed" : nil)
+                StatTile(title: "Edits applied", value: totals.edits > 0 ? Fmt.count(totals.edits) : "—",
+                         footnote: totals.edits > 0 ? "\(Fmt.count(totals.linesAdded / max(1, totals.edits))) lines per edit" : nil)
+                StatTile(title: "Acceptance", value: suggested.acceptanceRate.map { String(format: "%.0f%%", $0 * 100) } ?? "—",
+                         footnote: suggested.acceptanceRate != nil ? "of \(Fmt.count(suggested.suggestedLines)) suggested (Cursor)"
+                                   : (suggested.suggestedLines > 0 ? "Cursor counts not comparable" : "Cursor reports suggestions"))
+                StatTile(title: "Per day", value: Fmt.count(totals.linesAdded / max(1, dayCount)), footnote: "\(dayCount) days")
+            }
+
+            Chart(series) { p in
+                BarMark(x: .value("Day", p.day, unit: .day), y: .value("Lines", p.linesAdded))
+                    .foregroundStyle(by: .value("Provider", p.provider.displayName))
+                    .cornerRadius(3)
+                    .opacity(hoveredDay == nil || Calendar.current.isDate(hoveredDay!, inSameDayAs: p.day) ? 1 : 0.45)
+            }
+            .chartForegroundStyleScale(domain: present.map(\.displayName), range: present.map(\.color))
+            .chartLegend(present.count > 1 ? .visible : .hidden)
+            .chartYAxis {
+                AxisMarks(position: .leading) { v in
+                    AxisGridLine().foregroundStyle(.quaternary)
+                    AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.tokens(Int(d))) } }
+                }
+            }
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 8)) { _ in
+                    AxisGridLine().foregroundStyle(.clear)
+                    AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                }
+            }
+            .chartXSelection(value: $hoveredDay)
+            .frame(height: 180)
+
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Source").frame(maxWidth: .infinity, alignment: .leading)
+                    Text("Accepted").frame(width: 90, alignment: .trailing)
+                    Text("Removed").frame(width: 90, alignment: .trailing)
+                    Text("Suggested").frame(width: 90, alignment: .trailing)
+                    Text("Edits").frame(width: 70, alignment: .trailing)
+                }
+                .font(.caption).foregroundStyle(.secondary).padding(.bottom, 6)
+                Divider()
+                ForEach(groups) { g in
+                    HStack {
+                        HStack(spacing: 6) {
+                            if showProvider { Circle().fill(g.provider.color).frame(width: 7, height: 7) }
+                            Text(showProvider ? "\(g.provider.displayName) · \(kindName(g.kind))" : kindName(g.kind))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(Fmt.count(g.totals.linesAdded)).frame(width: 90, alignment: .trailing).fontWeight(.medium)
+                        Text(g.totals.linesRemoved > 0 ? Fmt.count(g.totals.linesRemoved) : "—").frame(width: 90, alignment: .trailing).foregroundStyle(.secondary)
+                        Text(g.totals.suggestedLines > 0 ? Fmt.count(g.totals.suggestedLines) : "—").frame(width: 90, alignment: .trailing).foregroundStyle(.secondary)
+                        Text(g.totals.edits > 0 ? Fmt.count(g.totals.edits) : "—").frame(width: 70, alignment: .trailing).foregroundStyle(.secondary)
+                    }
+                    .font(.callout.monospacedDigit())
+                    .padding(.vertical, 5)
+                    Divider()
+                }
+            }
+            Text("Claude Code and Codex: lines in edits whose tool result was not an error. Cursor: Tab and Composer lines as counted by Cursor itself. Lines are a rough measure of output, not of quality.")
+                .font(.caption2).foregroundStyle(.tertiary)
+        }
+    }
+
+    private var dayCount: Int {
+        max(1, Calendar.current.dateComponents([.day], from: interval.start, to: interval.end).day ?? 1)
+    }
+
+    private func kindName(_ k: String) -> String {
+        switch k {
+        case "edits": return "edits"
+        case "tab": return "Tab"
+        case "composer": return "Composer"
+        default: return k
+        }
     }
 }
 

@@ -23,6 +23,11 @@ public struct CodexProvider: UsageProvider {
         public var reasoning: Int
         /// Working directory of the session, when recorded.
         public var cwd: String?
+        /// Lines added/removed by `apply_patch` calls that reported success and that preceded
+        /// this response's usage record, and how many such patches there were.
+        public var linesAdded: Int?
+        public var linesRemoved: Int?
+        public var edits: Int?
     }
 
     /// Latest plan rate-limit snapshot found in the logs (ChatGPT-subscription users).
@@ -47,7 +52,7 @@ public struct CodexProvider: UsageProvider {
             home.appendingPathComponent(".codex/sessions", isDirectory: true),
             home.appendingPathComponent(".codex/archived_sessions", isDirectory: true),
         ]
-        self.cache = ParsedFileCache(name: "codex-v2", directory: cacheDirectory)
+        self.cache = ParsedFileCache(name: "codex-v3", directory: cacheDirectory)
     }
 
     public func fetch(interval: DateInterval, credentials: Credentials) async throws -> [UsageRecord] {
@@ -123,6 +128,10 @@ public struct CodexProvider: UsageProvider {
         let payload: Payload?
         struct Payload: Decodable {
             let type: String?
+            let name: String?
+            let call_id: String?
+            let input: String?
+            let output: String?
             let model: String?
             let cwd: String?
             let turn_id: String?
@@ -154,6 +163,14 @@ public struct CodexProvider: UsageProvider {
 
         var currentModel = ""
         var currentCwd: String? = nil
+        var pendingPatches: [String: (added: Int, removed: Int)] = [:]   // by call_id, until the output arrives
+        var appliedSinceLastUsage = (added: 0, removed: 0, edits: 0)
+        func attach(_ e: inout Entry) {
+            if appliedSinceLastUsage.edits > 0 {
+                e.linesAdded = appliedSinceLastUsage.added; e.linesRemoved = appliedSinceLastUsage.removed; e.edits = appliedSinceLastUsage.edits
+                appliedSinceLastUsage = (0, 0, 0)
+            }
+        }
         var modelByTurn: [String: String] = [:]
         var cwdByTurn: [String: String?] = [:]
         var usageRecords: [Entry] = []
@@ -166,11 +183,22 @@ public struct CodexProvider: UsageProvider {
             let isMeta = line.containsASCII("\"session_meta\"")
             let isUsageRecord = line.containsASCII("\"token_usage_record\"")
             let isTokenCount = line.containsASCII("\"token_count\"")
-            guard isTurn || isMeta || isUsageRecord || isTokenCount else { return }
+            let isPatch = line.containsASCII("\"custom_tool_call") && (line.containsASCII("apply_patch") || line.containsASCII("custom_tool_call_output"))
+            guard isTurn || isMeta || isUsageRecord || isTokenCount || isPatch else { return }
             guard let rec = try? decoder.decode(Line.self, from: line), let payload = rec.payload else { return }
             let date = rec.timestamp.flatMap { LogFiles.parseDate($0, fractional: iso, plain: isoPlain) }
 
             switch rec.type {
+            case "response_item":
+                if payload.type == "custom_tool_call", payload.name == "apply_patch", let id = payload.call_id, let patch = payload.input {
+                    pendingPatches[id] = CodeActivity.diffCounts(patch)
+                } else if payload.type == "custom_tool_call_output", let id = payload.call_id, let counts = pendingPatches.removeValue(forKey: id) {
+                    if (payload.output ?? "").contains("Success") {
+                        appliedSinceLastUsage.added += counts.added
+                        appliedSinceLastUsage.removed += counts.removed
+                        appliedSinceLastUsage.edits += 1
+                    }
+                }
             case "session_meta":
                 if currentCwd == nil, let c = UsageRecord.projectKey(payload.cwd) { currentCwd = c }
             case "turn_context":
@@ -187,14 +215,18 @@ public struct CodexProvider: UsageProvider {
                 guard seenResponseIDs.insert(rid).inserted else { return }
                 let model = payload.turn_id.flatMap { modelByTurn[$0] } ?? currentModel
                 let cwd = payload.turn_id.flatMap { cwdByTurn[$0] ?? nil } ?? currentCwd
-                usageRecords.append(Self.entry(key: rid, date: date, model: model, cwd: cwd, u))
+                var e = Self.entry(key: rid, date: date, model: model, cwd: cwd, u)
+                attach(&e)
+                usageRecords.append(e)
             case "event_msg":
                 guard payload.type == "token_count", let info = payload.info,
                       let total = info.total_token_usage, let last = info.last_token_usage, let date else { return }
                 if let prev = previousTotal, prev == total { return }
                 previousTotal = total
                 let key = "\(rec.timestamp ?? "")|\(total.input_tokens ?? 0)|\(total.output_tokens ?? 0)|\(total.cached_input_tokens ?? 0)"
-                countEvents.append(Self.entry(key: key, date: date, model: currentModel, cwd: currentCwd, last))
+                var e = Self.entry(key: key, date: date, model: currentModel, cwd: currentCwd, last)
+                attach(&e)
+                countEvents.append(e)
             default:
                 break
             }
@@ -208,6 +240,26 @@ public struct CodexProvider: UsageProvider {
               input: u.input_tokens ?? 0, cached: u.cached_input_tokens ?? 0,
               cacheWrite: u.cache_write_input_tokens ?? 0, output: u.output_tokens ?? 0,
               reasoning: u.reasoning_output_tokens ?? 0, cwd: cwd)
+    }
+
+    public func codeActivity(interval: DateInterval, credentials: Credentials) async throws -> [CodeActivity] {
+        let files = roots.flatMap { root in LogFiles.enumerate(root) { $0.pathExtension == "jsonl" } }
+        let entries = await cache.entries(for: files, parse: Self.parseFile)
+        return Self.aggregateCode(entries)
+    }
+
+    public static func aggregateCode(_ entries: [Entry], resolver: ProjectResolver = ProjectResolver()) -> [CodeActivity] {
+        var unique: [String: Entry] = [:]
+        for e in entries where (e.edits ?? 0) > 0 && unique[e.key] == nil { unique[e.key] = e }
+        let projects = resolver.resolve(unique.values.map(\.cwd))
+        var out: [String: CodeActivity] = [:]
+        for e in unique.values {
+            let item = CodeActivity(provider: .codexCLI, day: DayKey.startOfDay(e.timestamp), kind: "edits",
+                                    project: e.cwd.flatMap { projects[$0] },
+                                    linesAdded: e.linesAdded ?? 0, linesRemoved: e.linesRemoved ?? 0, edits: e.edits ?? 0)
+            if var existing = out[item.id] { existing.merge(item); out[item.id] = existing } else { out[item.id] = item }
+        }
+        return out.values.sorted { ($0.day, $0.project ?? "") < ($1.day, $1.project ?? "") }
     }
 
     static func parseRateLimits(_ url: URL) throws -> RateLimits? {

@@ -73,12 +73,15 @@ public protocol UsageProvider: Sendable {
     func fetch(interval: DateInterval, credentials: Credentials) async throws -> [UsageRecord]
     /// Subscription-plan consumption, if the source exposes it. nil when not applicable.
     func planStatus(credentials: Credentials) async throws -> PlanStatus?
+    /// Lines of code the tool produced, per day. Empty when the source has no such data.
+    func codeActivity(interval: DateInterval, credentials: Credentials) async throws -> [CodeActivity]
 }
 
 public extension UsageProvider {
     var credentialFields: [CredentialField] { [] }
     var credentialImports: [CredentialImport] { [] }
     func planStatus(credentials: Credentials) async throws -> PlanStatus? { nil }
+    func codeActivity(interval: DateInterval, credentials: Credentials) async throws -> [CodeActivity] { [] }
 
     func isConfigured(_ credentials: Credentials) -> Bool {
         credentialFields.filter { !$0.isOptional }.allSatisfy { field in

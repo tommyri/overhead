@@ -70,6 +70,34 @@ enum DemoData {
         return out
     }
 
+    /// Lines of AI-written code per day, roughly proportional to the usage above.
+    static func codeActivity(now: Date = Date(), calendar: Calendar = .current) -> [CodeActivity] {
+        var rng = SeededGenerator(seed: 777)
+        let today = calendar.startOfDay(for: now)
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let projects = ["\(home)/dev/overhead", "\(home)/dev/acme-api", "\(home)/dev/acme-web"]
+        var out: [CodeActivity] = []
+        for offset in stride(from: 29, through: 0, by: -1) {
+            let day = calendar.date(byAdding: .day, value: -offset, to: today)!
+            let weekday = calendar.component(.weekday, from: day)
+            let f = (weekday == 1 || weekday == 7 ? 0.2 : 1.0) * (0.5 + rng.nextDouble())
+            for (i, proj) in projects.enumerated() {
+                let w = [0.5, 0.3, 0.2][i]
+                let claudeAdded = Int(900 * f * w * (0.7 + rng.nextDouble() * 0.6))
+                out.append(CodeActivity(provider: .claudeCode, day: day, kind: "edits", project: proj,
+                                        linesAdded: claudeAdded, linesRemoved: claudeAdded / 4, edits: max(1, claudeAdded / 18)))
+                let codexAdded = Int(350 * f * w * (0.7 + rng.nextDouble() * 0.6))
+                out.append(CodeActivity(provider: .codexCLI, day: day, kind: "edits", project: proj,
+                                        linesAdded: codexAdded, linesRemoved: codexAdded / 5, edits: max(1, codexAdded / 25)))
+            }
+            let tabSuggested = Int(400 * f * (0.7 + rng.nextDouble() * 0.6))
+            out.append(CodeActivity(provider: .cursor, day: day, kind: "tab", linesAdded: Int(Double(tabSuggested) * 0.3), suggestedLines: tabSuggested))
+            let compSuggested = Int(500 * f * (0.7 + rng.nextDouble() * 0.6))
+            out.append(CodeActivity(provider: .cursor, day: day, kind: "composer", linesAdded: Int(Double(compSuggested) * 0.85), suggestedLines: compSuggested))
+        }
+        return out
+    }
+
     static func planStatus(for provider: ProviderID, now: Date = Date()) -> PlanStatus? {
         let cal = Calendar.current
         switch provider {

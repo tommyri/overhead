@@ -7,9 +7,18 @@ public actor UsageCache {
     public struct Snapshot: Codable, Sendable {
         public var fetchedAt: Date
         public var records: [UsageRecord]
-        public init(fetchedAt: Date, records: [UsageRecord]) {
+        public var code: [CodeActivity]
+        public init(fetchedAt: Date, records: [UsageRecord], code: [CodeActivity] = []) {
             self.fetchedAt = fetchedAt
             self.records = records
+            self.code = code
+        }
+        enum CodingKeys: String, CodingKey { case fetchedAt, records, code }
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            fetchedAt = try c.decode(Date.self, forKey: .fetchedAt)
+            records = try c.decode([UsageRecord].self, forKey: .records)
+            code = try c.decodeIfPresent([CodeActivity].self, forKey: .code) ?? []
         }
     }
 
@@ -43,9 +52,9 @@ public actor UsageCache {
         return try? decoder.decode(Snapshot.self, from: data)
     }
 
-    public func save(_ provider: ProviderID, records: [UsageRecord], fetchedAt: Date = Date()) throws {
+    public func save(_ provider: ProviderID, records: [UsageRecord], code: [CodeActivity] = [], fetchedAt: Date = Date()) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let snap = Snapshot(fetchedAt: fetchedAt, records: records)
+        let snap = Snapshot(fetchedAt: fetchedAt, records: records, code: code)
         let data = try encoder.encode(snap)
         try data.write(to: url(for: provider), options: .atomic)
     }
