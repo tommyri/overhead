@@ -26,7 +26,13 @@ A native macOS app (SwiftUI, menu bar + window) that shows how much you use and 
 | **xAI (Grok)** | Management API key + Team ID. | Billed USD per model and day (no token counts in the API). |
 | **OpenRouter** | API key; optional Management key. | Today's spend from the key endpoint; with a Management key, 30 days of per-model history. |
 
-Not available through any official API, so not in the app: ChatGPT consumer (Plus/Pro) usage, Claude.ai Pro/Max limits, consumer Grok (grok.com / X Premium).
+### What about the chat apps themselves?
+
+Subscriptions are covered as far as their coding tools expose them, not beyond:
+
+- **ChatGPT plan** (Plus, Pro, Business): Codex writes the plan tier and its rolling usage windows into its logs, so Overhead shows those. Your use of the ChatGPT app itself (conversations, images, deep research) is not exposed by any official API and is not shown.
+- **Claude plan** (Pro, Max, Team seat): Claude Code's local logs give tokens and the account profile gives the tier. The claude.ai chat usage and the plan's 5-hour/weekly windows come from an undocumented endpoint that Anthropic's terms reserve for its own clients, so they are not shown.
+- **Grok** (grok.com, X Premium): no API at all. Grok usage inside Cursor is captured through Cursor.
 
 ### A note on Cursor personal plans
 
