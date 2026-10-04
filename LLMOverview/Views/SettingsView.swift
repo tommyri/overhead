@@ -1,4 +1,5 @@
 import SwiftUI
+import ServiceManagement
 import LLMOverviewCore
 
 struct SettingsView: View {
@@ -16,10 +17,20 @@ struct SettingsView: View {
 
 struct GeneralSettings: View {
     @Environment(AppModel.self) private var model
+    @State private var loginItem = LoginItem()
 
     var body: some View {
         @Bindable var model = model
         Form {
+            Section {
+                Toggle("Launch at login", isOn: Binding(
+                    get: { loginItem.isEnabled },
+                    set: { loginItem.setEnabled($0) }
+                ))
+                if let note = loginItem.note {
+                    Text(note).font(.callout).foregroundStyle(.secondary)
+                }
+            }
             Picker("Refresh every", selection: $model.refreshMinutes) {
                 Text("5 minutes").tag(5)
                 Text("15 minutes").tag(15)
@@ -316,5 +327,39 @@ struct PricingSettings: View {
     private func fmt(_ v: Double?) -> String {
         guard let v else { return "—" }
         return v < 1 ? String(format: "%.3f", v) : String(format: "%.2f", v)
+    }
+}
+
+
+/// Wraps SMAppService so the toggle reflects the real registration state, including the
+/// case where macOS wants the user to approve the login item in System Settings.
+@MainActor
+@Observable
+final class LoginItem {
+    private(set) var status: SMAppService.Status = SMAppService.mainApp.status
+    private(set) var lastError: String? = nil
+
+    var isEnabled: Bool { status == .enabled }
+
+    var note: String? {
+        if let lastError { return lastError }
+        switch status {
+        case .requiresApproval:
+            return "Approval needed: allow “LLM Overview” under System Settings → General → Login Items."
+        default:
+            // .notRegistered and .notFound both mean "off"; .notFound is what macOS reports
+            // before the app has ever been registered.
+            return "Starts the menu bar item when you log in."
+        }
+    }
+
+    func setEnabled(_ on: Bool) {
+        lastError = nil
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+        } catch {
+            lastError = error.localizedDescription
+        }
+        status = SMAppService.mainApp.status
     }
 }

@@ -59,6 +59,25 @@ Pass a directory to install elsewhere, e.g. `./scripts/install.sh ~/Applications
 
 For development, `./scripts/run.sh` builds and launches from the build folder, or open `LLMOverview.xcodeproj` in Xcode (after `xcodegen generate`) and press Run.
 
+Settings → General has a "Launch at login" toggle (uses `SMAppService`; the app should live in /Applications for that).
+
+### Releasing a notarized DMG
+
+Downloads from GitHub are checked by Gatekeeper, so release builds are signed with a Developer ID certificate, notarized by Apple and stapled. One-time setup, with an app-specific password from account.apple.com:
+
+```bash
+xcrun notarytool store-credentials llmoverview-notary --apple-id you@example.com --team-id XXXXXXXXXX --password <app-specific-password>
+```
+
+Then, for each release:
+
+```bash
+./scripts/release.sh 0.1.0            # dist/LLM-Overview-0.1.0.dmg, notarized and stapled
+./scripts/release.sh 0.1.0 --publish  # same, then creates the GitHub release with gh
+```
+
+The script builds Release with hardened runtime and a secure timestamp, notarizes the app, staples it, wraps it in a DMG with an Applications shortcut, then notarizes and staples the DMG too, and writes a SHA-256 next to it. `--skip-notarize` produces a signed but un-notarized DMG for local testing.
+
 ### Core package tests and debug CLI
 
 The parsing/aggregation logic lives in the `LLMOverviewCore` Swift package and has no UI dependencies:
@@ -96,3 +115,7 @@ Credentials are stored in the macOS Keychain (service `app.llmoverview`, the bun
 2. Implement a `UsageProvider` in `LLMOverviewCore/Sources/LLMOverviewCore/Providers/`, declaring any `credentialFields`.
 3. Register it in `LLMOverview/App/ProviderRegistry+Providers.swift`.
 4. Add a fixture under `LLMOverviewCore/Tests/.../Fixtures` and a test.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

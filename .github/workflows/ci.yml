@@ -1,0 +1,21 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test-and-build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.0.app || sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+      - name: Core tests
+        run: swift test
+        working-directory: LLMOverviewCore
+      - name: Build app (unsigned)
+        run: |
+          brew install xcodegen
+          xcodegen generate --quiet
+          xcodebuild -project LLMOverview.xcodeproj -scheme LLMOverview -configuration Release \
+            -derivedDataPath build/DerivedData CODE_SIGN_IDENTITY="-" CODE_SIGNING_ALLOWED=NO build | tail -3
