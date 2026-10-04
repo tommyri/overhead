@@ -18,6 +18,14 @@ struct OverheadApp: App {
                 Button("Refresh All") { Task { await model.refreshAll(force: true) } }
                     .keyboardShortcut("r", modifiers: .command)
             }
+            CommandMenu("Go") {
+                Button("Overview") { model.selectedProvider = nil }
+                    .keyboardShortcut("1", modifiers: .command)
+                ForEach(Array(model.activeProviders.prefix(8).enumerated()), id: \.element) { index, p in
+                    Button(p.displayName) { model.selectedProvider = p }
+                        .keyboardShortcut(KeyEquivalent(Character(String(index + 2))), modifiers: .command)
+                }
+            }
         }
 
         MenuBarExtra {

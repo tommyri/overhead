@@ -52,15 +52,18 @@ struct SidebarView: View {
 
     var body: some View {
         @Bindable var model = model
-        List(selection: $model.selectedProvider) {
+        List(selection: Binding<AppModel.Page?>(
+            get: { model.selectedPage },
+            set: { if let page = $0 { model.selectedPage = page } }
+        )) {
             Section {
                 Label("Overview", systemImage: "chart.bar.xaxis")
-                    .tag(Optional<ProviderID>.none)
+                    .tag(AppModel.Page.overview)
             }
             Section("Providers") {
                 ForEach(model.activeProviders) { p in
                     ProviderRow(provider: p)
-                        .tag(Optional(p))
+                        .tag(AppModel.Page.provider(p))
                 }
             }
         }

@@ -134,6 +134,7 @@ struct StatRow: View {
 
 /// Subscription fee (prorated to the range) next to the API-equivalent value of what was used.
 struct PaidVsValueTable: View {
+    @Environment(AppModel.self) private var model
     let rows: [AppModel.PaidVsValue]
     let interval: DateInterval
 
@@ -183,6 +184,9 @@ struct PaidVsValueTable: View {
                     .frame(height: 8)
                 }
                 .padding(.vertical, 6)
+                .contentShape(Rectangle())
+                .onTapGesture { model.selectedProvider = row.provider }
+                .help("Open \(row.provider.displayName)")
                 Divider()
             }
             HStack {
@@ -381,6 +385,7 @@ private struct TooltipView: View {
 // MARK: - Provider breakdown
 
 struct ProviderBreakdown: View {
+    @Environment(AppModel.self) private var model
     let byProvider: [ProviderID: UsageAggregator.Totals]
     let providers: [ProviderID]
     let grandTotal: UsageAggregator.Totals
@@ -408,6 +413,9 @@ struct ProviderBreakdown: View {
                     }
                     .frame(height: 5)
                 }
+                .contentShape(Rectangle())
+                .onTapGesture { model.selectedProvider = p }
+                .help("Open \(p.displayName)")
             }
         }
     }

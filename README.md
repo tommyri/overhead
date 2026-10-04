@@ -78,7 +78,7 @@ Pass a directory to install elsewhere, e.g. `./scripts/install.sh ~/Applications
 
 For development, `./scripts/run.sh` builds and launches from the build folder, or open `Overhead.xcodeproj` in Xcode (after `xcodegen generate`) and press Run.
 
-Settings → General has a "Launch at login" toggle (uses `SMAppService`; the app should live in /Applications for that).
+Navigate with the sidebar, the Go menu, or ⌘1 for the overview and ⌘2… for each provider; provider rows on the overview are clickable too. Settings → General has a "Launch at login" toggle (uses `SMAppService`; the app should live in /Applications for that).
 
 ### Releasing a notarized DMG
 

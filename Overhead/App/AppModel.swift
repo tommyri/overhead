@@ -55,6 +55,16 @@ final class AppModel {
     var selectedProvider: ProviderID? = nil {
         didSet { if !isDemo { Prefs.selectedProvider = selectedProvider } }
     }
+
+    /// Sidebar destination. `nil` provider = Overview.
+    enum Page: Hashable {
+        case overview
+        case provider(ProviderID)
+    }
+    var selectedPage: Page {
+        get { selectedProvider.map(Page.provider) ?? .overview }
+        set { if case .provider(let p) = newValue { selectedProvider = p } else { selectedProvider = nil } }
+    }
     private(set) var planStatus: [ProviderID: PlanStatus] = [:]
     var lastRefresh: Date? = nil
     var isRefreshing: Bool { statusByProvider.values.contains(.loading) }
