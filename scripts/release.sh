@@ -84,7 +84,7 @@ if [ "$SKIP_NOTARIZE" = 0 ]; then
   spctl -a -t open --context context:primary-signature -v "$DMG"
 fi
 rm -rf "$STAGE"
-shasum -a 256 "$DMG" | tee "$DMG.sha256"
+(cd "$DIST" && shasum -a 256 "$(basename "$DMG")" | tee "$(basename "$DMG").sha256")
 echo "==> Done: $DMG"
 
 if [ "$PUBLISH" = 1 ]; then
