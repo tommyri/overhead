@@ -229,15 +229,17 @@ public struct CodexProvider: UsageProvider {
 
     // MARK: Aggregation
 
-    public static func aggregate(_ entries: [Entry]) -> [UsageRecord] {
+    public static func aggregate(_ entries: [Entry], resolver: ProjectResolver = ProjectResolver()) -> [UsageRecord] {
         var unique: [String: Entry] = [:]
         for e in entries where unique[e.key] == nil { unique[e.key] = e }
 
+        let projects = resolver.resolve(unique.values.map(\.cwd))
         var records: [String: UsageRecord] = [:]
         for e in unique.values {
             let day = DayKey.startOfDay(e.timestamp)
-            let rid = "\(DayKey.string(for: day))|\(e.model)|\(e.cwd ?? "")"
-            var r = records[rid] ?? UsageRecord(provider: .codexCLI, day: day, model: e.model, project: e.cwd)
+            let project = e.cwd.flatMap { projects[$0] }
+            let rid = "\(DayKey.string(for: day))|\(e.model)|\(project ?? "")"
+            var r = records[rid] ?? UsageRecord(provider: .codexCLI, day: day, model: e.model, project: project)
             // Normalize to disjoint buckets: uncached input, cache read, cache write, output.
             let cacheRead = min(e.cached, e.input)
             let cacheWrite = min(e.cacheWrite, max(0, e.input - cacheRead))

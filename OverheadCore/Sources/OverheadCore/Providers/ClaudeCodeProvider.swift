@@ -134,18 +134,20 @@ public struct ClaudeCodeProvider: UsageProvider {
 
     /// Global dedupe (same response can appear in an audit log and a nested transcript),
     /// then roll up to (day, model) with estimated cost.
-    public static func aggregate(_ entries: [Entry]) -> [UsageRecord] {
+    public static func aggregate(_ entries: [Entry], resolver: ProjectResolver = ProjectResolver()) -> [UsageRecord] {
         var unique: [String: Entry] = [:]
         for e in entries {
             if let existing = unique[e.key], existing.output >= e.output { continue }
             unique[e.key] = e
         }
+        let projects = resolver.resolve(unique.values.map(\.cwd))
         var records: [String: UsageRecord] = [:]
         var oneHourWrites: [String: Int] = [:]
         for e in unique.values {
             let day = DayKey.startOfDay(e.timestamp)
-            let rid = "\(DayKey.string(for: day))|\(e.model)|\(e.cwd ?? "")"
-            var r = records[rid] ?? UsageRecord(provider: .claudeCode, day: day, model: e.model, project: e.cwd)
+            let project = e.cwd.flatMap { projects[$0] }
+            let rid = "\(DayKey.string(for: day))|\(e.model)|\(project ?? "")"
+            var r = records[rid] ?? UsageRecord(provider: .claudeCode, day: day, model: e.model, project: project)
             r.inputTokens += e.input
             r.outputTokens += e.output
             r.cacheWriteTokens += e.cacheWrite

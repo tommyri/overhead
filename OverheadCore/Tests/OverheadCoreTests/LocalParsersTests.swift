@@ -114,3 +114,25 @@ private func fixture(_ name: String) -> URL {
         #expect(PriceTable.normalize("GPT-5-Codex") == "gpt-5-codex")
     }
 }
+
+@Suite struct ProjectResolverTests {
+    @Test func foldsSubdirectoriesAndWorktreesIntoTheRepository() throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("resolver-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: base) }
+        let repo = base.appendingPathComponent("home/dev/app")
+        try fm.createDirectory(at: repo.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: repo.appendingPathComponent("src/Feature"), withIntermediateDirectories: true)
+        let worktree = base.appendingPathComponent("home/.codex/worktrees/42/app")
+        try fm.createDirectory(at: worktree, withIntermediateDirectories: true)
+        try "gitdir: \(repo.path)/.git/worktrees/42\n".write(to: worktree.appendingPathComponent(".git"), atomically: true, encoding: .utf8)
+        let loose = base.appendingPathComponent("home/Documents/scratch")
+        try fm.createDirectory(at: loose, withIntermediateDirectories: true)
+
+        let r = ProjectResolver(home: base.appendingPathComponent("home").path)
+        #expect(r.repoRoot(for: repo.appendingPathComponent("src/Feature").path) == repo.path)
+        #expect(r.repoRoot(for: worktree.path) == repo.path)
+        #expect(r.repoRoot(for: loose.path) == loose.path)           // no repo: unchanged
+        #expect(r.resolve([repo.path, nil, worktree.path]).count == 2)
+    }
+}
