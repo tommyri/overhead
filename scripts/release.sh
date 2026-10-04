@@ -22,6 +22,11 @@ done
 
 APP_NAME="Overhead"
 PROFILE="${NOTARY_PROFILE:-overhead-notary}"
+# Fall back to the profile name used before the app was renamed.
+if [ -z "${NOTARY_PROFILE:-}" ] && ! xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1 \
+   && xcrun notarytool history --keychain-profile llmoverview-notary >/dev/null 2>&1; then
+  PROFILE="llmoverview-notary"
+fi
 BUILD_NUMBER=$(git rev-list --count HEAD 2>/dev/null || echo 1)
 DIST="dist"; STAGE="$DIST/stage"
 DMG="$DIST/Overhead-$VERSION.dmg"
