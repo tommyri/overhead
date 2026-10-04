@@ -23,6 +23,8 @@ public struct CodexProvider: UsageProvider {
         public var reasoning: Int
         /// Working directory of the session, when recorded.
         public var cwd: String?
+        /// Rollout session id (`session_meta.payload.id`), falling back to the file name.
+        public var session: String?
         /// Lines added/removed by `apply_patch` calls that reported success and that preceded
         /// this response's usage record, and how many such patches there were.
         public var linesAdded: Int?
@@ -59,7 +61,7 @@ public struct CodexProvider: UsageProvider {
             home.appendingPathComponent(".codex/sessions", isDirectory: true),
             home.appendingPathComponent(".codex/archived_sessions", isDirectory: true),
         ]
-        self.cache = ParsedFileCache(name: "codex-v5", directory: cacheDirectory)
+        self.cache = ParsedFileCache(name: "codex-v6", directory: cacheDirectory)
     }
 
     public func fetch(interval: DateInterval, credentials: Credentials) async throws -> [UsageRecord] {
@@ -135,6 +137,7 @@ public struct CodexProvider: UsageProvider {
         let payload: Payload?
         struct Payload: Decodable {
             let type: String?
+            let id: String?
             let name: String?
             let call_id: String?
             let input: String?
@@ -170,6 +173,7 @@ public struct CodexProvider: UsageProvider {
 
         var currentModel = ""
         var currentCwd: String? = nil
+        var session = "file:\(url.deletingPathExtension().lastPathComponent)"
         var pendingPatches: [String: (added: Int, removed: Int)] = [:]   // by call_id, until the output arrives
         var appliedSinceLastUsage = (added: 0, removed: 0, edits: 0)
         var pendingTools: [String: String] = [:]                          // call_id → tool name
@@ -228,6 +232,7 @@ public struct CodexProvider: UsageProvider {
                 }
             case "session_meta":
                 if currentCwd == nil, let c = UsageRecord.projectKey(payload.cwd) { currentCwd = c }
+                if let id = payload.id, !id.isEmpty { session = id }
             case "turn_context":
                 if let m = payload.model, !m.isEmpty {
                     currentModel = m
@@ -243,6 +248,7 @@ public struct CodexProvider: UsageProvider {
                 let model = payload.turn_id.flatMap { modelByTurn[$0] } ?? currentModel
                 let cwd = payload.turn_id.flatMap { cwdByTurn[$0] ?? nil } ?? currentCwd
                 var e = Self.entry(key: rid, date: date, model: model, cwd: cwd, u)
+                e.session = session
                 attach(&e)
                 usageRecords.append(e)
             case "event_msg":
@@ -254,6 +260,7 @@ public struct CodexProvider: UsageProvider {
                 previousTotal = total
                 let key = "\(rec.timestamp ?? "")|\(total.input_tokens ?? 0)|\(total.output_tokens ?? 0)|\(total.cached_input_tokens ?? 0)"
                 var e = Self.entry(key: key, date: date, model: currentModel, cwd: currentCwd, last)
+                e.session = session
                 attach(&e)
                 countEvents.append(e)
             default:
@@ -328,6 +335,30 @@ public struct CodexProvider: UsageProvider {
         let files = roots.flatMap { root in LogFiles.enumerate(root) { $0.pathExtension == "jsonl" } }
         let entries = await cache.entries(for: files, parse: Self.parseFile)
         return Self.aggregateTools(entries)
+    }
+
+    public func sessions(interval: DateInterval, credentials: Credentials) async throws -> [SessionActivity] {
+        let files = roots.flatMap { root in LogFiles.enumerate(root) { $0.pathExtension == "jsonl" } }
+        let entries = await cache.entries(for: files, parse: Self.parseFile)
+        return SessionAggregator.sessions(Self.sessionItems(entries), provider: .codexCLI)
+    }
+
+    public func hourlyActivity(interval: DateInterval, credentials: Credentials) async throws -> [HourlyActivity] {
+        let files = roots.flatMap { root in LogFiles.enumerate(root) { $0.pathExtension == "jsonl" } }
+        let entries = await cache.entries(for: files, parse: Self.parseFile)
+        return SessionAggregator.hourly(Self.sessionItems(entries), provider: .codexCLI)
+    }
+
+    /// Deduplicated responses with OpenAI's overlapping counts split into disjoint buckets.
+    static func sessionItems(_ entries: [Entry]) -> [SessionAggregator.Item] {
+        var unique: [String: Entry] = [:]
+        for e in entries where unique[e.key] == nil { unique[e.key] = e }
+        return unique.values.map { e in
+            let cacheRead = min(e.cached, e.input)
+            let cacheWrite = min(e.cacheWrite, max(0, e.input - cacheRead))
+            return SessionAggregator.Item(session: e.session ?? "unknown", timestamp: e.timestamp, model: e.model, cwd: e.cwd,
+                                          input: max(0, e.input - cacheRead - cacheWrite), output: e.output, cacheRead: cacheRead, cacheWrite: cacheWrite)
+        }
     }
 
     /// Codex tool outputs are JSON strings like {"output":"…","metadata":{"exit_code":1}}.

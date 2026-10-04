@@ -81,6 +81,14 @@ struct ProviderDetailView: View {
                         }
                     }
 
+                    let sessions = model.sessions(for: provider)
+                    let hourly = model.hourly(for: provider)
+                    if !sessions.isEmpty || !hourly.isEmpty {
+                        ChartCard(title: "Sessions and working hours") {
+                            SessionsView(sessions: sessions, hourly: hourly, interval: model.currentInterval, providers: [provider], showProvider: false)
+                        }
+                    }
+
                     let code = model.code(for: provider)
                     if !code.isEmpty {
                         ChartCard(title: "AI code output") {

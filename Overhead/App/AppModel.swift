@@ -63,6 +63,8 @@ final class AppModel {
     /// Past plan-window observations: from the provider's own logs where it keeps them, else
     /// the samples this app took on earlier refreshes.
     private(set) var planHistoryByProvider: [ProviderID: [PlanSample]] = [:]
+    private(set) var sessionsByProvider: [ProviderID: [SessionActivity]] = [:]
+    private(set) var hourlyByProvider: [ProviderID: [HourlyActivity]] = [:]
     private(set) var statusByProvider: [ProviderID: FetchStatus] = [:]
     private(set) var credentials: Credentials = [:]
     var selectedProvider: ProviderID? = nil {
@@ -126,6 +128,8 @@ final class AppModel {
                 codeByProvider[p] = allCode.filter { $0.provider == p }
                 toolsByProvider[p] = allTools.filter { $0.provider == p }
                 planHistoryByProvider[p] = DemoData.planHistory(for: p)
+                sessionsByProvider[p] = DemoData.sessions(for: p)
+                hourlyByProvider[p] = DemoData.hourlyActivity(for: p)
                 statusByProvider[p] = .ok(Date().addingTimeInterval(-90))
                 planStatus[p] = DemoData.planStatus(for: p)
             }
@@ -145,6 +149,8 @@ final class AppModel {
                 codeByProvider[p] = snap.code
                 toolsByProvider[p] = snap.tools
                 planHistoryByProvider[p] = snap.plan
+                sessionsByProvider[p] = snap.sessions
+                hourlyByProvider[p] = snap.hourly
                 statusByProvider[p] = .ok(snap.fetchedAt)
             }
         }
@@ -284,8 +290,12 @@ final class AppModel {
             toolsByProvider[id] = tools
             let history = (try? await provider.planHistory(interval: interval, credentials: creds)) ?? []
             planHistoryByProvider[id] = history
+            let sessions = (try? await provider.sessions(interval: interval, credentials: creds)) ?? []
+            sessionsByProvider[id] = sessions
+            let hourly = (try? await provider.hourlyActivity(interval: interval, credentials: creds)) ?? []
+            hourlyByProvider[id] = hourly
             statusByProvider[id] = .ok(Date())
-            try? await cache.save(id, records: records, code: code, tools: tools, plan: history)
+            try? await cache.save(id, records: records, code: code, tools: tools, plan: history, sessions: sessions, hourly: hourly)
             await loadPlanStatus(id)
         } catch {
             // Keep stale cached data visible, just mark the error.
@@ -342,6 +352,22 @@ final class AppModel {
 
     func planHistory(for provider: ProviderID) -> [PlanSample] {
         UsageAggregator.filter(planHistoryByProvider[provider] ?? [], in: currentInterval)
+    }
+
+    var sessionsInRange: [SessionActivity] {
+        UsageAggregator.filter(sessionsByProvider.filter { enabledProviders.contains($0.key) }.values.flatMap { $0 }, in: currentInterval)
+    }
+
+    func sessions(for provider: ProviderID) -> [SessionActivity] {
+        UsageAggregator.filter(sessionsByProvider[provider] ?? [], in: currentInterval)
+    }
+
+    var hourlyInRange: [HourlyActivity] {
+        UsageAggregator.filter(hourlyByProvider.filter { enabledProviders.contains($0.key) }.values.flatMap { $0 }, in: currentInterval)
+    }
+
+    func hourly(for provider: ProviderID) -> [HourlyActivity] {
+        UsageAggregator.filter(hourlyByProvider[provider] ?? [], in: currentInterval)
     }
 
     // MARK: Period comparison
@@ -469,6 +495,8 @@ final class AppModel {
         codeByProvider[id] = nil
         toolsByProvider[id] = nil
         planHistoryByProvider[id] = nil
+        sessionsByProvider[id] = nil
+        hourlyByProvider[id] = nil
         planStatus[id] = nil
         statusByProvider[id] = .idle
         await cache.clear(id)

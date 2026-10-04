@@ -22,6 +22,9 @@ public struct ClaudeCodeProvider: UsageProvider {
         public var thinking: Int?
         /// Working directory of the session, when recorded.
         public var cwd: String?
+        /// Session the response belongs to (`sessionId`; subagent transcripts carry their parent's),
+        /// falling back to the transcript file name.
+        public var session: String?
         /// Lines added/removed by Edit/Write/MultiEdit/NotebookEdit calls in this response
         /// whose tool result was not an error, and how many such edits there were.
         public var linesAdded: Int?
@@ -41,7 +44,7 @@ public struct ClaudeCodeProvider: UsageProvider {
             home.appendingPathComponent(".claude/projects", isDirectory: true),
             home.appendingPathComponent("Library/Application Support/Claude/local-agent-mode-sessions", isDirectory: true),
         ]
-        self.cache = ParsedFileCache(name: "claude-code-v5", directory: cacheDirectory)
+        self.cache = ParsedFileCache(name: "claude-code-v6", directory: cacheDirectory)
     }
 
     public func fetch(interval: DateInterval, credentials: Credentials) async throws -> [UsageRecord] {
@@ -111,6 +114,7 @@ public struct ClaudeCodeProvider: UsageProvider {
         let timestamp: String?
         let _audit_timestamp: String?
         let requestId: String?
+        let sessionId: String?
         let cwd: String?
         let message: Message?
         struct Message: Decodable {
@@ -168,6 +172,7 @@ public struct ClaudeCodeProvider: UsageProvider {
         let isoPlain = ISO8601DateFormatter()
         var byKey: [String: Entry] = [:]
         var order: [String] = []
+        let fileSession = url.deletingPathExtension().lastPathComponent
         // Edits proposed in a response, keyed by tool_use id, until their result arrives.
         var pendingEdits: [String: (entryKey: String, added: Int, removed: Int)] = [:]
         var applied: [String: (added: Int, removed: Int, edits: Int)] = [:]
@@ -210,7 +215,8 @@ public struct ClaudeCodeProvider: UsageProvider {
                 cacheWrite1h: usage.cache_creation?.ephemeral_1h_input_tokens ?? 0,
                 cacheRead: usage.cache_read_input_tokens ?? 0,
                 thinking: usage.output_tokens_details?.thinking_tokens,
-                cwd: UsageRecord.projectKey(rec.cwd)
+                cwd: UsageRecord.projectKey(rec.cwd),
+                session: (rec.sessionId?.isEmpty == false) ? rec.sessionId : "file:\(fileSession)"
             )
             if byKey[key] == nil { order.append(key) }
             byKey[key] = entry   // last occurrence wins (final output_tokens)
@@ -238,6 +244,38 @@ public struct ClaudeCodeProvider: UsageProvider {
         let files = roots.flatMap { root in LogFiles.enumerateIncludingHidden(root) { $0.pathExtension == "jsonl" } }
         let entries = await cache.entries(for: files, parse: Self.parseFile)
         return Self.aggregateTools(entries, provider: .claudeCode)
+    }
+
+    public func sessions(interval: DateInterval, credentials: Credentials) async throws -> [SessionActivity] {
+        let files = roots.flatMap { root in LogFiles.enumerateIncludingHidden(root) { $0.pathExtension == "jsonl" } }
+        let entries = await cache.entries(for: files, parse: Self.parseFile)
+        return SessionAggregator.sessions(Self.sessionItems(entries), provider: .claudeCode)
+    }
+
+    public func hourlyActivity(interval: DateInterval, credentials: Credentials) async throws -> [HourlyActivity] {
+        let files = roots.flatMap { root in LogFiles.enumerateIncludingHidden(root) { $0.pathExtension == "jsonl" } }
+        let entries = await cache.entries(for: files, parse: Self.parseFile)
+        return SessionAggregator.hourly(Self.sessionItems(entries), provider: .claudeCode)
+    }
+
+    /// Deduplicated responses as the session aggregator wants them. When the same response was
+    /// seen in an audit log (no session id, so a "file:" placeholder) and in a transcript, the
+    /// transcript's copy wins so the session is not split in two.
+    static func sessionItems(_ entries: [Entry]) -> [SessionAggregator.Item] {
+        var unique: [String: Entry] = [:]
+        for e in entries {
+            if let existing = unique[e.key] {
+                let existingReal = !(existing.session ?? "file:").hasPrefix("file:"), newReal = !(e.session ?? "file:").hasPrefix("file:")
+                if existingReal && !newReal { continue }
+                if existingReal == newReal && existing.output >= e.output { continue }
+            }
+            unique[e.key] = e
+        }
+        return unique.values.map { e in
+            let w1h = min(e.cacheWrite1h, e.cacheWrite)
+            return SessionAggregator.Item(session: e.session ?? "unknown", timestamp: e.timestamp, model: e.model, cwd: e.cwd,
+                                          input: e.input, output: e.output, cacheRead: e.cacheRead, cacheWrite: e.cacheWrite - w1h, cacheWrite1h: w1h)
+        }
     }
 
     static func aggregateTools(_ entries: [Entry], provider: ProviderID, resolver: ProjectResolver = ProjectResolver()) -> [ToolActivity] {

@@ -61,6 +61,16 @@ for p in providers {
         if let s = UsageAggregator.cacheSavings(recs) {
             print(String(format: "   cache: %.0f%% of prompt tokens read from cache, saving ≈$%.2f (≈$%.2f with cache vs ≈$%.2f without)", s.cacheHitRate * 100, s.saved, s.withCache, s.withoutCache))
         }
+        let sessions = UsageAggregator.filter((try? await p.sessions(interval: interval, credentials: [:])) ?? [], in: interval)
+        if !sessions.isEmpty {
+            let t = UsageAggregator.sessionTotals(sessions)
+            print(String(format: "   sessions: %d, active %.1f h in total, median %.0f min, longest %.0f min (%d responses)",
+                         t.count, t.activeSeconds / 3600, t.medianActiveSeconds / 60, (t.longest?.activeSeconds ?? 0) / 60, t.longest?.requests ?? 0))
+            let heat = UsageAggregator.heatmap(UsageAggregator.filter((try? await p.hourlyActivity(interval: interval, credentials: [:])) ?? [], in: interval))
+            if let busiest = heat.max(by: { $0.requests < $1.requests }), busiest.requests > 0 {
+                print("   busiest hour: \(Calendar.current.shortWeekdaySymbols[busiest.weekday - 1]) \(String(format: "%02d", busiest.hour)):00 with \(busiest.requests) responses")
+            }
+        }
         let history = (try? await p.planHistory(interval: interval, credentials: [:])) ?? []
         if !history.isEmpty {
             let inRange = UsageAggregator.filter(history, in: interval)

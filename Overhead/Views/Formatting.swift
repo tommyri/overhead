@@ -47,6 +47,14 @@ enum Fmt {
         n.formatted(.number.grouping(.automatic))
     }
 
+    /// "2h 05m", "25 min", "40 s".
+    static func duration(_ seconds: Double) -> String {
+        let s = Int(seconds.rounded())
+        if s < 60 { return "\(s) s" }
+        if s < 3600 { return "\(s / 60) min" }
+        return String(format: "%dh %02dm", s / 3600, (s % 3600) / 60)
+    }
+
     static func relative(_ d: Date) -> String {
         if Date().timeIntervalSince(d) < 60 { return "just now" }
         let f = RelativeDateTimeFormatter()

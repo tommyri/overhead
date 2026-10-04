@@ -80,6 +80,10 @@ public protocol UsageProvider: Sendable {
     /// Past observations of the plan windows, when the source records them itself (Codex logs,
     /// the Claude status-line helper). Empty otherwise; the app then samples `planStatus`.
     func planHistory(interval: DateInterval, credentials: Credentials) async throws -> [PlanSample]
+    /// Sessions (one per transcript or rollout) with their active time. Empty for sources without them.
+    func sessions(interval: DateInterval, credentials: Credentials) async throws -> [SessionActivity]
+    /// Model responses per local hour, for the weekday × hour heatmap. Empty where only daily data exists.
+    func hourlyActivity(interval: DateInterval, credentials: Credentials) async throws -> [HourlyActivity]
 }
 
 public extension UsageProvider {
@@ -89,6 +93,8 @@ public extension UsageProvider {
     func codeActivity(interval: DateInterval, credentials: Credentials) async throws -> [CodeActivity] { [] }
     func toolActivity(interval: DateInterval, credentials: Credentials) async throws -> [ToolActivity] { [] }
     func planHistory(interval: DateInterval, credentials: Credentials) async throws -> [PlanSample] { [] }
+    func sessions(interval: DateInterval, credentials: Credentials) async throws -> [SessionActivity] { [] }
+    func hourlyActivity(interval: DateInterval, credentials: Credentials) async throws -> [HourlyActivity] { [] }
 
     func isConfigured(_ credentials: Credentials) -> Bool {
         credentialFields.filter { !$0.isOptional }.allSatisfy { field in

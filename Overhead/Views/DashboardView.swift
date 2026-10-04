@@ -83,6 +83,14 @@ struct DashboardView: View {
                         }
                     }
 
+                    let sessions = model.sessionsInRange
+                    let hourly = model.hourlyInRange
+                    if !sessions.isEmpty || !hourly.isEmpty {
+                        ChartCard(title: "Sessions and working hours") {
+                            SessionsView(sessions: sessions, hourly: hourly, interval: model.currentInterval, providers: providers, showProvider: true)
+                        }
+                    }
+
                     let code = model.codeInRange
                     if !code.isEmpty {
                         ChartCard(title: "AI code output") {

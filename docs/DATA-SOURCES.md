@@ -11,6 +11,8 @@ The code paths referenced live in `OverheadCore/Sources/OverheadCore/` unless no
 | `UsageRecord` | One row per provider × local calendar day × model × project: input, output, cache-write and cache-read tokens, reasoning tokens (a subset of output, where reported), request count, and a cost that is `reported` (from a billing endpoint), `estimated` (from list prices, shown with ≈) or `unknown`. | every provider's `fetch` |
 | `PlanStatus` | Subscription consumption: named windows with a used percentage, reset time and period start, plus the detected tier and its list price. | `planStatus` on Codex, Cursor, Claude Code |
 | `PlanSample` | One past observation of a plan window: provider, time, window title, used percentage, reset time. The "Plan usage over time" chart is drawn from these. | `planHistory` on Codex and Claude Code; the app's own sampling for the rest |
+| `SessionActivity` | One session: provider, session id, project, first and last response, active seconds, responses, tokens, value. | `sessions` on Claude Code and Codex |
+| `HourlyActivity` | Model responses and tokens per provider × local day × local hour, for the weekday × hour heatmap. | `hourlyActivity` on Claude Code and Codex |
 | `CodeActivity` | One row per provider × day × kind × project: lines added, lines removed, lines suggested, number of edits. | `codeActivity` on Claude Code, Codex, Cursor |
 | `ToolActivity` | One row per provider × day × tool × project: number of calls and how many returned an error. | `toolActivity` on Claude Code, Codex |
 
@@ -40,6 +42,8 @@ Conventions that apply across providers:
 
 **Tool usage.** Every `tool_use` block in an assistant line counts one call for its `name` (Bash, Read, Edit, Grep, WebFetch, Task, …). The call is marked failed when the matching `tool_result` has `is_error: true`. Tool inputs other than the edit fields above are not decoded.
 
+**Sessions.** Every line carries `sessionId`; subagent transcripts (`subagents/agent-*.jsonl`) carry their parent's, so a session's subagent work folds into it. Lines without one (the desktop app's audit logs) use the file name as a placeholder, and when the same response appears both in an audit log and in a transcript the transcript's copy wins so the session is not split. Responses are grouped by session id into `SessionActivity` (first and last response, active time, responses, tokens, list-price value; the most common working directory names the project) and bucketed by local hour into `HourlyActivity`.
+
 **Not read.** Prompt or response text is never parsed, stored or displayed; the parser decodes only the fields above.
 
 ## 3. Codex CLI
@@ -59,6 +63,8 @@ Conventions that apply across providers:
 **Code output.** `response_item` lines with `payload.type == "custom_tool_call"` and `name == "apply_patch"` contain the patch in `payload.input`; added and removed lines are the `+`/`-` lines of the patch (directive and header lines excluded). The count is applied only when the matching `custom_tool_call_output` (same `call_id`) contains "Success", and is attributed to the next usage record in the file.
 
 **Tool usage.** `response_item` lines of type `function_call` (exec_command, shell, write_stdin, update_plan, …) and `custom_tool_call` (exec, apply_patch) each count one call for `payload.name`. The matching `*_output` line's `output` is a JSON string whose `metadata.exit_code` marks the call as failed when non-zero; a patch whose output reports a verification failure counts as failed too. Calls are attributed to the next usage record in the file, like patches.
+
+**Sessions.** One rollout file is one session, identified by `session_meta.payload.id` (file name as fallback). Subagent and review rollouts are separate files and therefore separate sessions. Responses are grouped and bucketed as for Claude Code.
 
 ## 4. Cursor
 
@@ -98,12 +104,13 @@ All of these report billed cost, so records are `reported`, and none carry a pro
 - **Plan usage over time** (`UsageAggregator.planSeries`) draws the samples above as one line per window. Between two samples whose reset time moved later, the line holds the last value until the old reset and starts a new segment at zero, so the sawtooth is explicit. Samples are thinned to about 400 points per window (the last sample of each time bucket) before drawing.
 - **Cache savings** (`UsageAggregator.cacheSavings`) sums, over records whose model is in the price table, the list-price cost had every prompt token (input + cache read + cache write) been billed as fresh input, and subtracts the list-price cost with caching as it happened (an estimated record's own cost, which includes the 1-hour cache-write premium; for billed records a fresh estimate, because a plan charge or invoice is not a per-token price). Both sides are list-price arithmetic, so the result is always an estimate, shown with ≈; models without a list price are left out of both sides.
 - **Thinking share** is reasoning tokens ÷ output tokens, shown only where some reasoning tokens were reported; a dash means the source did not say, not that there was none.
+- **Sessions and working hours** (`SessionAggregator`). A session's *active time* is the sum of the gaps between its consecutive responses, each gap counted up to 15 minutes; a transcript left open overnight therefore contributes 15 minutes for the night, not eight hours. *Duration* is first to last response. Sessions are filtered into a range by their start. The heatmap sums `HourlyActivity` into weekday × hour cells (7 × 24, zero-filled, weekdays in the calendar's order) and shades them with one hue from light to dark; only Claude Code and Codex have time-of-day data, since API and Cursor usage arrives as daily buckets or without working-directory context.
 - **Period comparison** puts a delta on the stat tiles against the previous period of the same length (`DateRangePreset.previousInterval`): yesterday for Today, the preceding 7 or 30 days, the same number of elapsed days of the previous month for This month, and the whole month before for Last month. The 90-day preset has no comparison because its previous period lies outside the 90 days API providers are asked for.
 
 ## 8. Storage and caching
 
 - Parsed local logs are indexed per file by size and modification time under `~/Library/Application Support/Overhead/index/`, so only new or changed session files are re-read. When the parser changes shape the index name is bumped and everything is re-read once.
-- Each provider's last successful result (usage, code activity, tool usage and plan history) is saved under `~/Library/Application Support/Overhead/cache/` so the app shows data immediately on launch and keeps stale data visible if a fetch fails.
+- Each provider's last successful result (usage, code activity, tool usage, plan history, sessions and hourly activity) is saved under `~/Library/Application Support/Overhead/cache/` so the app shows data immediately on launch and keeps stale data visible if a fetch fails.
 - The status-line helper's current record and history live next to those folders as `claude-statusline.json` and `claude-statusline-history.jsonl`; the app's own plan samples under `plan-history/`.
 - Credentials live in the macOS Keychain under the bundle identifier (`app.overhead`). Preferences, including billing plans and alert settings, live in the app's UserDefaults domain. Settings → General → "Clear cached data" removes the caches; credentials stay.
 

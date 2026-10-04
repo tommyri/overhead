@@ -200,6 +200,71 @@ enum DemoData {
         return out.sorted { $0.observedAt < $1.observedAt }
     }
 
+    /// Synthetic model responses with timestamps, grouped into sessions: a few per working day,
+    /// mostly office hours with the odd evening, one lunch gap now and then. Sessions and the
+    /// hourly heatmap are derived from these through the real aggregator.
+    private static let sessionItems: [ProviderID: [SessionAggregator.Item]] = {
+        var rng = SeededGenerator(seed: 31337)
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let projects = ["\(home)/dev/overhead", "\(home)/dev/acme-api", "\(home)/dev/acme-web", "\(home)/dev/infra"]
+        let models: [ProviderID: [(String, Double, Int, Int, Int)]] = [   // id, share, input, output, cache read per response
+            .claudeCode: [("claude-opus-5-5", 0.6, 110, 2400, 290_000), ("claude-sonnet-5-5", 0.4, 90, 1600, 170_000)],
+            .codexCLI: [("gpt-6-astra", 0.7, 4200, 320, 118_000), ("gpt-5.6-sol", 0.3, 3000, 280, 90_000)],
+        ]
+        var out: [ProviderID: [SessionAggregator.Item]] = [:]
+        for provider in [ProviderID.claudeCode, .codexCLI] {
+            var items: [SessionAggregator.Item] = []
+            var sessionNumber = 0
+            for offset in stride(from: 59, through: 0, by: -1) {
+                let day = calendar.date(byAdding: .day, value: -offset, to: today)!
+                let weekday = calendar.component(.weekday, from: day)
+                let weekend = weekday == 1 || weekday == 7
+                let perDay = weekend ? (rng.nextDouble() < 0.3 ? 1 : 0) : (provider == .claudeCode ? 2 + Int(rng.nextDouble() * 4) : 1 + Int(rng.nextDouble() * 3))
+                for _ in 0..<perDay {
+                    sessionNumber += 1
+                    // Start hours cluster around 9–11 and 13–16, with a few evenings.
+                    let r = rng.nextDouble()
+                    let startHour = r < 0.4 ? 9 + rng.nextDouble() * 2.5 : (r < 0.85 ? 13 + rng.nextDouble() * 3.5 : 20 + rng.nextDouble() * 2)
+                    var t = day.addingTimeInterval(startHour * 3600 + rng.nextDouble() * 1800)
+                    guard t < Date() else { continue }
+                    let activeMinutes = 8 + rng.nextDouble() * (provider == .claudeCode ? 140 : 70)
+                    let responses = max(3, Int(activeMinutes / (provider == .claudeCode ? 1.4 : 2.6)))
+                    let project = projects[min(projects.count - 1, Int(pow(rng.nextDouble(), 1.6) * Double(projects.count)))]
+                    let lunchAt = rng.nextDouble() < 0.25 ? Int(Double(responses) * 0.5) : -1
+                    for i in 0..<responses {
+                        let (id, _, inp, outp, cache) = pick(models[provider]!, rng.nextDouble())
+                        let jitter = 0.5 + rng.nextDouble()
+                        items.append(SessionAggregator.Item(session: "\(provider.rawValue)-demo-\(sessionNumber)", timestamp: t, model: id, cwd: project,
+                                                            input: Int(Double(inp) * jitter), output: Int(Double(outp) * jitter),
+                                                            cacheRead: Int(Double(cache) * jitter), cacheWrite: provider == .claudeCode ? Int(Double(cache) * 0.02) : 0))
+                        t = t.addingTimeInterval(i == lunchAt ? 40 * 60 : (activeMinutes * 60 / Double(responses)) * (0.4 + rng.nextDouble() * 1.2))
+                        if t > Date() { break }
+                    }
+                }
+            }
+            out[provider] = items
+        }
+        return out
+    }()
+
+    private static func pick(_ models: [(String, Double, Int, Int, Int)], _ r: Double) -> (String, Double, Int, Int, Int) {
+        var acc = 0.0
+        for m in models { acc += m.1; if r < acc { return m } }
+        return models[models.count - 1]
+    }
+
+    static func sessions(for provider: ProviderID) -> [SessionActivity] {
+        guard let items = sessionItems[provider] else { return [] }
+        return SessionAggregator.sessions(items, provider: provider)
+    }
+
+    static func hourlyActivity(for provider: ProviderID) -> [HourlyActivity] {
+        guard let items = sessionItems[provider] else { return [] }
+        return SessionAggregator.hourly(items, provider: provider)
+    }
+
     static let billingPlans: [ProviderID: BillingPlan] = [
         .claudeCode:   BillingPlan(kind: .subscription, monthlyFeeUSD: 100, autoDetected: true, planName: "Claude Max 5x"),
         .codexCLI:     BillingPlan(kind: .subscription, monthlyFeeUSD: 20,  autoDetected: true, planName: "ChatGPT Plus"),

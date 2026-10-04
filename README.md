@@ -1,6 +1,6 @@
 # Overhead
 
-A native macOS app (SwiftUI, menu bar + window) that shows how much you use and spend across LLM providers in one place: daily cost and token charts, per-model and per-project breakdowns, lines of AI-written code and tool-call statistics per tool, paid vs value for your subscriptions, month-end projections, plan-limit alerts with a history of how each window fills up, what prompt caching saved you, how much of the output was reasoning, deltas against the previous period, and a menu bar item with today's spend.
+A native macOS app (SwiftUI, menu bar + window) that shows how much you use and spend across LLM providers in one place: daily cost and token charts, per-model and per-project breakdowns, lines of AI-written code and tool-call statistics per tool, paid vs value for your subscriptions, month-end projections, plan-limit alerts with a history of how each window fills up, sessions with their active time and a weekday × hour heatmap of when you work with AI, what prompt caching saved you, how much of the output was reasoning, deltas against the previous period, and a menu bar item with today's spend.
 
 ## Screenshots
 
@@ -11,6 +11,8 @@ A native macOS app (SwiftUI, menu bar + window) that shows how much you use and 
 ![AI code output: lines accepted per day by tool, with suggested vs accepted for Cursor](docs/screenshots/code.png)
 
 ![Tool usage: calls and failures per tool for Claude Code and Codex](docs/screenshots/tools.png)
+
+![Sessions and working hours: session counts and active time, a weekday × hour heatmap of model responses, and the longest sessions](docs/screenshots/sessions.png)
 
 | Provider page with plan limits (Codex) | Provider page with plan limits (Cursor) |
 |---|---|
@@ -24,8 +26,8 @@ A native macOS app (SwiftUI, menu bar + window) that shows how much you use and 
 
 | Provider | How data is obtained | What you get |
 |---|---|---|
-| **Claude Code** | Parses `~/.claude/projects/**/*.jsonl` (and the Claude desktop app's agent-mode logs). No setup. Optional status-line helper for plan windows. | Tokens per model, project and day (thinking tokens included), request counts, cost **estimated** from list prices (incl. 5m/1h cache-write pricing); with the helper, the plan's 5-hour and weekly windows and their history. |
-| **Codex CLI** | Parses `~/.codex/sessions/**/*.jsonl` and `archived_sessions`. No setup. | Tokens per model, project and day (reasoning tokens included), API-equivalent cost estimate, and your ChatGPT plan's 5-hour / weekly usage windows with their history from every turn. |
+| **Claude Code** | Parses `~/.claude/projects/**/*.jsonl` (and the Claude desktop app's agent-mode logs). No setup. Optional status-line helper for plan windows. | Tokens per model, project and day (thinking tokens included), request counts, cost **estimated** from list prices (incl. 5m/1h cache-write pricing), sessions with active time and hour-of-day activity; with the helper, the plan's 5-hour and weekly windows and their history. |
+| **Codex CLI** | Parses `~/.codex/sessions/**/*.jsonl` and `archived_sessions`. No setup. | Tokens per model, project and day (reasoning tokens included), API-equivalent cost estimate, sessions with active time and hour-of-day activity, and your ChatGPT plan's 5-hour / weekly usage windows with their history from every turn. |
 | **Anthropic API** | Admin API key (`sk-ant-admin…`). | Org-wide token usage by model plus billed cost from the cost report. |
 | **OpenAI API** | Admin API key (`sk-admin…`). | Org-wide completions usage by model plus billed cost by line item. |
 | **Cursor** | Personal plans (Pro/Pro+/Ultra): your cursor.com login session, imported from the Cursor app with one click or pasted from the browser. Teams: Admin API key. | Per-request tokens and charged cents per model and day, the plan's included-usage budget and billing cycle, and Tab/Composer lines suggested vs accepted from Cursor's local statistics. |

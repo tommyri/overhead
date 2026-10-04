@@ -10,14 +10,19 @@ public actor UsageCache {
         public var code: [CodeActivity]
         public var tools: [ToolActivity]
         public var plan: [PlanSample]
-        public init(fetchedAt: Date, records: [UsageRecord], code: [CodeActivity] = [], tools: [ToolActivity] = [], plan: [PlanSample] = []) {
+        public var sessions: [SessionActivity]
+        public var hourly: [HourlyActivity]
+        public init(fetchedAt: Date, records: [UsageRecord], code: [CodeActivity] = [], tools: [ToolActivity] = [], plan: [PlanSample] = [],
+                    sessions: [SessionActivity] = [], hourly: [HourlyActivity] = []) {
             self.fetchedAt = fetchedAt
             self.records = records
             self.code = code
             self.tools = tools
             self.plan = plan
+            self.sessions = sessions
+            self.hourly = hourly
         }
-        enum CodingKeys: String, CodingKey { case fetchedAt, records, code, tools, plan }
+        enum CodingKeys: String, CodingKey { case fetchedAt, records, code, tools, plan, sessions, hourly }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             fetchedAt = try c.decode(Date.self, forKey: .fetchedAt)
@@ -25,6 +30,8 @@ public actor UsageCache {
             code = try c.decodeIfPresent([CodeActivity].self, forKey: .code) ?? []
             tools = try c.decodeIfPresent([ToolActivity].self, forKey: .tools) ?? []
             plan = try c.decodeIfPresent([PlanSample].self, forKey: .plan) ?? []
+            sessions = try c.decodeIfPresent([SessionActivity].self, forKey: .sessions) ?? []
+            hourly = try c.decodeIfPresent([HourlyActivity].self, forKey: .hourly) ?? []
         }
     }
 
@@ -58,9 +65,10 @@ public actor UsageCache {
         return try? decoder.decode(Snapshot.self, from: data)
     }
 
-    public func save(_ provider: ProviderID, records: [UsageRecord], code: [CodeActivity] = [], tools: [ToolActivity] = [], plan: [PlanSample] = [], fetchedAt: Date = Date()) throws {
+    public func save(_ provider: ProviderID, records: [UsageRecord], code: [CodeActivity] = [], tools: [ToolActivity] = [], plan: [PlanSample] = [],
+                     sessions: [SessionActivity] = [], hourly: [HourlyActivity] = [], fetchedAt: Date = Date()) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let snap = Snapshot(fetchedAt: fetchedAt, records: records, code: code, tools: tools, plan: plan)
+        let snap = Snapshot(fetchedAt: fetchedAt, records: records, code: code, tools: tools, plan: plan, sessions: sessions, hourly: hourly)
         let data = try encoder.encode(snap)
         try data.write(to: url(for: provider), options: .atomic)
     }
