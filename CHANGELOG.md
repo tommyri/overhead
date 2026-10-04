@@ -6,6 +6,12 @@ The release script uses a version's section below as the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+- "Show in Dock" toggle in Settings → General. Off runs Overhead as a menu-bar-only app: no Dock icon, no ⌘-Tab entry. The Dock icon and app menu return while the main window or Settings is open, so shortcuts keep working, and go away when the last window closes.
+
+### Fixed
+- The alerts note in Settings still said Claude's windows were not available; it now points to the status-line helper.
+
 ## [0.3.0] - 2026-10-04
 
 ### Documentation

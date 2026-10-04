@@ -43,6 +43,10 @@ final class AppModel {
     var alertThreshold: Int {
         didSet { if !isDemo { Prefs.alertThreshold = alertThreshold }; evaluateAlerts() }
     }
+    /// Off keeps the app in the menu bar only; the Dock icon returns while a window is open.
+    var showInDock: Bool {
+        didSet { if !isDemo { Prefs.showInDock = showInDock }; DockVisibility.shared.apply(showInDock: showInDock) }
+    }
 
     enum MenuBarMetric: String, CaseIterable, Identifiable {
         case todayCost, monthCost, rangeCost
@@ -101,7 +105,9 @@ final class AppModel {
             billingPlans = DemoData.billingPlans
             alertsEnabled = true
             alertThreshold = 80
-            selectedProvider = Prefs.selectedProvider   // honoured from launch arguments, never written
+            showInDock = Prefs.showInDock               // honoured from launch arguments, never written
+            selectedProvider = Prefs.selectedProvider
+            DockVisibility.shared.apply(showInDock: showInDock)
             return
         }
         AppIdentity.migrateDefaultsIfNeeded()
@@ -112,8 +118,10 @@ final class AppModel {
         billingPlans = Prefs.billingPlans
         alertsEnabled = Prefs.alertsEnabled
         alertThreshold = Prefs.alertThreshold
+        showInDock = Prefs.showInDock
         selectedProvider = Prefs.selectedProvider
         loadCredentials()
+        DockVisibility.shared.apply(showInDock: showInDock)
     }
 
     // MARK: Lifecycle
@@ -571,6 +579,11 @@ private enum Prefs {
     static var alertThreshold: Int {
         get { d.object(forKey: "alertThreshold") == nil ? 80 : d.integer(forKey: "alertThreshold") }
         set { d.set(newValue, forKey: "alertThreshold") }
+    }
+
+    static var showInDock: Bool {
+        get { d.object(forKey: "showInDock") == nil ? true : d.bool(forKey: "showInDock") }
+        set { d.set(newValue, forKey: "showInDock") }
     }
 
     static var menuBarMetric: AppModel.MenuBarMetric {

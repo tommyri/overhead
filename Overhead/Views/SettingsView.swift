@@ -23,7 +23,7 @@ struct GeneralSettings: View {
         if model.alertsEnabled, model.notifier.authorized == false {
             return "Notifications are blocked for Overhead in System Settings → Notifications."
         }
-        return "Also alerts when a window is on pace to run out before it resets. Codex and Cursor report windows; Claude's are not available."
+        return "Also alerts when a window is on pace to run out before it resets. Codex and Cursor report windows; Claude Code's need the status-line helper (Providers → Claude Code)."
     }
 
     var body: some View {
@@ -37,6 +37,9 @@ struct GeneralSettings: View {
                 if let note = loginItem.note {
                     Text(note).font(.callout).foregroundStyle(.secondary)
                 }
+                Toggle("Show in Dock", isOn: $model.showInDock)
+                Text("Off keeps Overhead in the menu bar only. The Dock icon and the app menu come back while a window is open and disappear again when you close it; use the menu bar item to open the window.")
+                    .font(.callout).foregroundStyle(.secondary)
             }
             Section {
                 Toggle("Plan-limit alerts", isOn: Binding(

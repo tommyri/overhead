@@ -90,7 +90,7 @@ Pass a directory to install elsewhere, e.g. `./scripts/install.sh ~/Applications
 
 For development, `./scripts/run.sh` builds and launches from the build folder, or open `Overhead.xcodeproj` in Xcode (after `xcodegen generate`) and press Run.
 
-Navigate with the sidebar, the Go menu, or ⌘1 for the overview and ⌘2… for each provider; provider rows on the overview are clickable too. Settings → General has plan-limit alerts (a notification when a Codex, Cursor or Claude window passes 70/80/90% or is on pace to run out before it resets; the menu bar icon turns into a warning sign meanwhile) and a "Launch at login" toggle (uses `SMAppService`; the app should live in /Applications for that).
+Navigate with the sidebar, the Go menu, or ⌘1 for the overview and ⌘2… for each provider; provider rows on the overview are clickable too. Settings → General has plan-limit alerts (a notification when a Codex, Cursor or Claude window passes 70/80/90% or is on pace to run out before it resets; the menu bar icon turns into a warning sign meanwhile), a "Launch at login" toggle (uses `SMAppService`; the app should live in /Applications for that), and a "Show in Dock" toggle: off keeps Overhead in the menu bar only, with the Dock icon and app menu appearing just while a window is open.
 
 ### Releasing a notarized DMG
 
