@@ -57,6 +57,15 @@ for p in providers {
             print(row([m.model, fmtTok(t.inputTokens), fmtTok(t.outputTokens), fmtTok(t.cacheWriteTokens), fmtTok(t.cacheReadTokens), "\(t.requests)", fmtUSD(t.cost)]))
         }
         print(row(["TOTAL", fmtTok(totals.inputTokens), fmtTok(totals.outputTokens), fmtTok(totals.cacheWriteTokens), fmtTok(totals.cacheReadTokens), "\(totals.requests)", fmtUSD(totals.cost)]))
+        if let share = totals.thinkingShare { print(String(format: "   thinking: %.0f%% of output tokens (%@)", share * 100, fmtTok(totals.reasoningTokens))) }
+        if let s = UsageAggregator.cacheSavings(recs) {
+            print(String(format: "   cache: %.0f%% of prompt tokens read from cache, saving ≈$%.2f (≈$%.2f with cache vs ≈$%.2f without)", s.cacheHitRate * 100, s.saved, s.withCache, s.withoutCache))
+        }
+        let history = (try? await p.planHistory(interval: interval, credentials: [:])) ?? []
+        if !history.isEmpty {
+            let inRange = UsageAggregator.filter(history, in: interval)
+            print("   plan history: \(inRange.count) samples in range (\(history.count) total, \(Set(history.map(\.window)).sorted().joined(separator: ", ")))")
+        }
         let projects = UsageAggregator.totalsByProject(recs)
         if !projects.isEmpty {
             print("   by project:")

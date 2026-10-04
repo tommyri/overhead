@@ -32,9 +32,12 @@ public struct CodexProvider: UsageProvider {
         /// record, by tool name, and how many returned a non-zero exit code.
         public var toolCalls: [String: Int]?
         public var toolErrors: [String: Int]?
+        /// Rate-limit snapshots (`token_count` events with `rate_limits`) taken after this response
+        /// and before the next one. Usually one; empty for API-key sessions.
+        public var rateLimits: [RateLimits]?
     }
 
-    /// Latest plan rate-limit snapshot found in the logs (ChatGPT-subscription users).
+    /// Plan rate-limit snapshot found in the logs (ChatGPT-subscription users).
     public struct RateLimits: Codable, Sendable, Hashable {
         public struct Window: Codable, Sendable, Hashable {
             public var usedPercent: Double
@@ -56,7 +59,7 @@ public struct CodexProvider: UsageProvider {
             home.appendingPathComponent(".codex/sessions", isDirectory: true),
             home.appendingPathComponent(".codex/archived_sessions", isDirectory: true),
         ]
-        self.cache = ParsedFileCache(name: "codex-v4", directory: cacheDirectory)
+        self.cache = ParsedFileCache(name: "codex-v5", directory: cacheDirectory)
     }
 
     public func fetch(interval: DateInterval, credentials: Credentials) async throws -> [UsageRecord] {
@@ -189,6 +192,7 @@ public struct CodexProvider: UsageProvider {
         var seenResponseIDs: Set<String> = []
         var countEvents: [Entry] = []
         var previousTotal: Usage?
+        var snapshots: [RateLimits] = []
 
         try LogFiles.forEachLine(in: url) { line in
             let isTurn = line.containsASCII("\"turn_context\"")
@@ -242,8 +246,10 @@ public struct CodexProvider: UsageProvider {
                 attach(&e)
                 usageRecords.append(e)
             case "event_msg":
-                guard payload.type == "token_count", let info = payload.info,
-                      let total = info.total_token_usage, let last = info.last_token_usage, let date else { return }
+                guard payload.type == "token_count", let date else { return }
+                // Newer Codex builds emit rate-limit-only events (`info` null); keep every snapshot.
+                if let rl = payload.rate_limits, let snapshot = Self.rateLimits(rl, observedAt: date) { snapshots.append(snapshot) }
+                guard let info = payload.info, let total = info.total_token_usage, let last = info.last_token_usage else { return }
                 if let prev = previousTotal, prev == total { return }
                 previousTotal = total
                 let key = "\(rec.timestamp ?? "")|\(total.input_tokens ?? 0)|\(total.output_tokens ?? 0)|\(total.cached_input_tokens ?? 0)"
@@ -255,7 +261,54 @@ public struct CodexProvider: UsageProvider {
             }
         }
         // Prefer the precise per-response records when a file has them.
-        return usageRecords.isEmpty ? countEvents : usageRecords
+        var entries = usageRecords.isEmpty ? countEvents : usageRecords
+        Self.attach(snapshots, to: &entries)
+        return entries
+    }
+
+    /// Each snapshot describes the state right after the latest response, so it belongs to the
+    /// last entry at or before it (or the first entry, for a snapshot written at session start).
+    private static func attach(_ snapshots: [RateLimits], to entries: inout [Entry]) {
+        guard !entries.isEmpty else { return }
+        var i = 0
+        for s in snapshots {
+            while i + 1 < entries.count, entries[i + 1].timestamp <= s.observedAt { i += 1 }
+            entries[i].rateLimits = (entries[i].rateLimits ?? []) + [s]
+        }
+    }
+
+    private static func rateLimits(_ rl: Line.RateLimitsPayload, observedAt: Date) -> RateLimits? {
+        func window(_ w: Line.RateLimitsPayload.Window?) -> RateLimits.Window? {
+            guard let w, let pct = w.used_percent else { return nil }
+            return .init(usedPercent: pct, windowMinutes: w.window_minutes ?? 0,
+                         resetsAt: w.resets_at.map { Date(timeIntervalSince1970: $0) })
+        }
+        let primary = window(rl.primary), secondary = window(rl.secondary)
+        guard primary != nil || secondary != nil else { return nil }
+        return RateLimits(observedAt: observedAt, planType: rl.plan_type, primary: primary, secondary: secondary)
+    }
+
+    public func planHistory(interval: DateInterval, credentials: Credentials) async throws -> [PlanSample] {
+        let files = roots.flatMap { root in LogFiles.enumerate(root) { $0.pathExtension == "jsonl" } }
+        let entries = await cache.entries(for: files, parse: Self.parseFile)
+        return Self.aggregatePlanHistory(entries)
+    }
+
+    /// One sample per window per snapshot, oldest first.
+    public static func aggregatePlanHistory(_ entries: [Entry]) -> [PlanSample] {
+        var unique: [String: Entry] = [:]
+        for e in entries where !(e.rateLimits ?? []).isEmpty && unique[e.key] == nil { unique[e.key] = e }
+        var out: [PlanSample] = []
+        for e in unique.values {
+            for rl in e.rateLimits ?? [] {
+                // A snapshot without a window length cannot be matched to a window; skip it.
+                for w in [rl.primary, rl.secondary].compactMap({ $0 }) where w.windowMinutes > 0 {
+                    out.append(PlanSample(provider: .codexCLI, observedAt: rl.observedAt, window: PlanStatus.windowTitle(minutes: w.windowMinutes),
+                                          usedPercent: w.usedPercent, resetsAt: w.resetsAt))
+                }
+            }
+        }
+        return out.sorted { ($0.observedAt, $0.window) < ($1.observedAt, $1.window) }
     }
 
     private static func entry(key: String, date: Date, model: String, cwd: String?, _ u: Usage) -> Entry {
@@ -327,13 +380,9 @@ public struct CodexProvider: UsageProvider {
         try LogFiles.forEachLine(in: url) { line in
             guard line.containsASCII("\"rate_limits\""), line.containsASCII("\"token_count\"") else { return }
             guard let rec = try? decoder.decode(Line.self, from: line), let rl = rec.payload?.rate_limits,
-                  let ts = rec.timestamp, let date = LogFiles.parseDate(ts, fractional: iso, plain: isoPlain) else { return }
-            func window(_ w: Line.RateLimitsPayload.Window?) -> RateLimits.Window? {
-                guard let w, let pct = w.used_percent else { return nil }
-                return .init(usedPercent: pct, windowMinutes: w.window_minutes ?? 0,
-                             resetsAt: w.resets_at.map { Date(timeIntervalSince1970: $0) })
-            }
-            latest = RateLimits(observedAt: date, planType: rl.plan_type, primary: window(rl.primary), secondary: window(rl.secondary))
+                  let ts = rec.timestamp, let date = LogFiles.parseDate(ts, fractional: iso, plain: isoPlain),
+                  let snapshot = Self.rateLimits(rl, observedAt: date) else { return }
+            latest = snapshot
         }
         return latest
     }
@@ -359,6 +408,7 @@ public struct CodexProvider: UsageProvider {
             r.cacheWriteTokens += cacheWrite
             r.outputTokens += e.output
             r.requests += 1
+            r.reasoningTokens += min(e.reasoning, e.output)
             records[rid] = r
         }
         return records.values.map { r in

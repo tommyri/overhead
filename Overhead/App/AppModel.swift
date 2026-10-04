@@ -60,6 +60,9 @@ final class AppModel {
     private(set) var recordsByProvider: [ProviderID: [UsageRecord]] = [:]
     private(set) var codeByProvider: [ProviderID: [CodeActivity]] = [:]
     private(set) var toolsByProvider: [ProviderID: [ToolActivity]] = [:]
+    /// Past plan-window observations: from the provider's own logs where it keeps them, else
+    /// the samples this app took on earlier refreshes.
+    private(set) var planHistoryByProvider: [ProviderID: [PlanSample]] = [:]
     private(set) var statusByProvider: [ProviderID: FetchStatus] = [:]
     private(set) var credentials: Credentials = [:]
     var selectedProvider: ProviderID? = nil {
@@ -83,6 +86,7 @@ final class AppModel {
 
     let registry = ProviderRegistry()
     private let cache = UsageCache()
+    private let planHistoryStore = PlanHistoryStore()
     private let keychain = Keychain(service: AppIdentity.bundleID, legacyServices: AppIdentity.legacyBundleIDs)
     private var timer: Timer?
 
@@ -121,6 +125,7 @@ final class AppModel {
                 recordsByProvider[p] = all.filter { $0.provider == p }
                 codeByProvider[p] = allCode.filter { $0.provider == p }
                 toolsByProvider[p] = allTools.filter { $0.provider == p }
+                planHistoryByProvider[p] = DemoData.planHistory(for: p)
                 statusByProvider[p] = .ok(Date().addingTimeInterval(-90))
                 planStatus[p] = DemoData.planStatus(for: p)
             }
@@ -129,12 +134,17 @@ final class AppModel {
             return
         }
         if alertsEnabled { await notifier.refreshAuthorization() }
+        // An app update may ship a newer status-line helper; keep the installed copy current.
+        if claudeStatusLine.installed, let source = Self.bundledStatusLineHelper {
+            _ = try? ClaudeStatusLine.refreshHelper(from: source)
+        }
         // Show cached data immediately, then refresh in the background.
         for p in ProviderID.allCases {
             if let snap = await cache.load(p) {
                 recordsByProvider[p] = snap.records
                 codeByProvider[p] = snap.code
                 toolsByProvider[p] = snap.tools
+                planHistoryByProvider[p] = snap.plan
                 statusByProvider[p] = .ok(snap.fetchedAt)
             }
         }
@@ -153,6 +163,11 @@ final class AppModel {
             planStatus[id] = status
             applyDetectedPlan(status.suggestedPlan, to: id)
             evaluateAlerts()
+            // Sample every provider; show the samples only where the source keeps no history itself.
+            await planHistoryStore.record(status, for: id)
+            if (planHistoryByProvider[id] ?? []).isEmpty {
+                planHistoryByProvider[id] = await planHistoryStore.samples(for: id)
+            }
         }
     }
 
@@ -267,8 +282,10 @@ final class AppModel {
             codeByProvider[id] = code
             let tools = (try? await provider.toolActivity(interval: interval, credentials: creds)) ?? []
             toolsByProvider[id] = tools
+            let history = (try? await provider.planHistory(interval: interval, credentials: creds)) ?? []
+            planHistoryByProvider[id] = history
             statusByProvider[id] = .ok(Date())
-            try? await cache.save(id, records: records, code: code, tools: tools)
+            try? await cache.save(id, records: records, code: code, tools: tools, plan: history)
             await loadPlanStatus(id)
         } catch {
             // Keep stale cached data visible, just mark the error.
@@ -321,6 +338,25 @@ final class AppModel {
 
     func records(for provider: ProviderID) -> [UsageRecord] {
         UsageAggregator.filter(recordsByProvider[provider] ?? [], in: currentInterval)
+    }
+
+    func planHistory(for provider: ProviderID) -> [PlanSample] {
+        UsageAggregator.filter(planHistoryByProvider[provider] ?? [], in: currentInterval)
+    }
+
+    // MARK: Period comparison
+
+    /// The period before the selected range, for the deltas on the stat tiles. nil for the
+    /// 90-day preset: its previous period lies outside what API providers are asked for.
+    var previousInterval: DateInterval? {
+        rangePreset == .last90 ? nil : rangePreset.previousInterval()
+    }
+
+    /// Totals for the previous period, over all enabled providers or one of them.
+    func previousTotals(for provider: ProviderID? = nil) -> UsageAggregator.Totals? {
+        guard let prev = previousInterval else { return nil }
+        let records = provider.map { recordsByProvider[$0] ?? [] } ?? allRecords
+        return UsageAggregator.totals(UsageAggregator.filter(records, in: prev))
     }
 
     var activeProviders: [ProviderID] {
@@ -432,9 +468,11 @@ final class AppModel {
         recordsByProvider[id] = nil
         codeByProvider[id] = nil
         toolsByProvider[id] = nil
+        planHistoryByProvider[id] = nil
         planStatus[id] = nil
         statusByProvider[id] = .idle
         await cache.clear(id)
+        await planHistoryStore.clear(id)
     }
 }
 

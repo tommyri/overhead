@@ -9,19 +9,22 @@ public actor UsageCache {
         public var records: [UsageRecord]
         public var code: [CodeActivity]
         public var tools: [ToolActivity]
-        public init(fetchedAt: Date, records: [UsageRecord], code: [CodeActivity] = [], tools: [ToolActivity] = []) {
+        public var plan: [PlanSample]
+        public init(fetchedAt: Date, records: [UsageRecord], code: [CodeActivity] = [], tools: [ToolActivity] = [], plan: [PlanSample] = []) {
             self.fetchedAt = fetchedAt
             self.records = records
             self.code = code
             self.tools = tools
+            self.plan = plan
         }
-        enum CodingKeys: String, CodingKey { case fetchedAt, records, code, tools }
+        enum CodingKeys: String, CodingKey { case fetchedAt, records, code, tools, plan }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             fetchedAt = try c.decode(Date.self, forKey: .fetchedAt)
             records = try c.decode([UsageRecord].self, forKey: .records)
             code = try c.decodeIfPresent([CodeActivity].self, forKey: .code) ?? []
             tools = try c.decodeIfPresent([ToolActivity].self, forKey: .tools) ?? []
+            plan = try c.decodeIfPresent([PlanSample].self, forKey: .plan) ?? []
         }
     }
 
@@ -55,9 +58,9 @@ public actor UsageCache {
         return try? decoder.decode(Snapshot.self, from: data)
     }
 
-    public func save(_ provider: ProviderID, records: [UsageRecord], code: [CodeActivity] = [], tools: [ToolActivity] = [], fetchedAt: Date = Date()) throws {
+    public func save(_ provider: ProviderID, records: [UsageRecord], code: [CodeActivity] = [], tools: [ToolActivity] = [], plan: [PlanSample] = [], fetchedAt: Date = Date()) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let snap = Snapshot(fetchedAt: fetchedAt, records: records, code: code, tools: tools)
+        let snap = Snapshot(fetchedAt: fetchedAt, records: records, code: code, tools: tools, plan: plan)
         let data = try encoder.encode(snap)
         try data.write(to: url(for: provider), options: .atomic)
     }

@@ -27,10 +27,11 @@ struct DashboardView: View {
         let paid = model.paidSummary(in: model.currentInterval, providers: model.activeProviders)
         let comparison = model.paidVsValue(in: model.currentInterval, providers: providers)
         let hasSubscriptions = comparison.contains { $0.plan.isSubscription }
+        let previous = model.previousTotals().map { StatComparison(totals: $0, label: model.rangePreset.previousLabel) }
 
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                StatRow(totals: totals, days: dayCount, paid: paid)
+                StatRow(totals: totals, days: dayCount, paid: paid, comparison: previous, cacheSavings: UsageAggregator.cacheSavings(records))
 
                 if records.isEmpty {
                     EmptyState()
@@ -109,11 +110,21 @@ struct DashboardView: View {
 
 // MARK: - Stat tiles
 
+/// Totals of the period before the selected range, for the deltas on the tiles.
+struct StatComparison {
+    let totals: UsageAggregator.Totals
+    /// e.g. "the previous 30 days"
+    let label: String
+}
+
 struct StatRow: View {
     let totals: UsageAggregator.Totals
     let days: Int
     /// What was actually paid in the range (prorated fees + API bills). nil hides the tile.
     var paid: AppModel.PaidSummary? = nil
+    var comparison: StatComparison? = nil
+    /// What prompt caching saved at list prices. nil hides the tile in favour of cache reads.
+    var cacheSavings: UsageAggregator.CacheSavings? = nil
 
     var body: some View {
         let value = totals.cost.value
@@ -122,14 +133,27 @@ struct StatRow: View {
                 StatTile(title: "Paid", value: paidText(paid), footnote: paidFootnote(paid))
             }
             StatTile(title: paid == nil ? "Cost" : "Value", value: Fmt.cost(totals.cost),
-                     footnote: value.map { "\(Fmt.usd($0 / Double(days), estimate: totals.cost.isEstimate)) per day" })
+                     footnote: value.map { "\(Fmt.usd($0 / Double(days), estimate: totals.cost.isEstimate)) per day" },
+                     delta: delta(value ?? 0, comparison?.totals.cost.value ?? 0), deltaLabel: comparison?.label)
             StatTile(title: "Tokens", value: Fmt.tokens(totals.totalTokens),
-                     footnote: "\(Fmt.tokens(totals.inputTokens)) in · \(Fmt.tokens(totals.outputTokens)) out")
-            StatTile(title: "Cache reads", value: Fmt.tokens(totals.cacheReadTokens),
-                     footnote: cacheHitText)
+                     footnote: "\(Fmt.tokens(totals.inputTokens)) in · \(Fmt.tokens(totals.outputTokens)) out",
+                     delta: delta(Double(totals.totalTokens), Double(comparison?.totals.totalTokens ?? 0)), deltaLabel: comparison?.label)
+            if let cacheSavings {
+                StatTile(title: "Cache savings", value: Fmt.usd(cacheSavings.saved, estimate: true),
+                         footnote: String(format: "%.0f%% cache hit rate", cacheSavings.cacheHitRate * 100))
+                    .help("Without prompt caching the same tokens would have cost \(Fmt.usd(cacheSavings.withoutCache, estimate: true)) at list prices instead of \(Fmt.usd(cacheSavings.withCache, estimate: true)). Only models with a known list price are counted.")
+            } else {
+                StatTile(title: "Cache reads", value: Fmt.tokens(totals.cacheReadTokens), footnote: cacheHitText)
+            }
             StatTile(title: "Requests", value: totals.requests > 0 ? Fmt.count(totals.requests) : "—",
-                     footnote: nil)
+                     footnote: nil,
+                     delta: delta(Double(totals.requests), Double(comparison?.totals.requests ?? 0)), deltaLabel: comparison?.label)
         }
+    }
+
+    private func delta(_ current: Double, _ previous: Double) -> Double? {
+        guard comparison != nil else { return nil }
+        return UsageAggregator.change(current, from: previous)
     }
 
     private func paidText(_ p: AppModel.PaidSummary) -> String {
@@ -247,10 +271,26 @@ struct StatTile: View {
     let title: String
     let value: String
     let footnote: String?
+    /// Relative change against the previous period (0.18 = +18%). nil shows nothing.
+    var delta: Double? = nil
+    var deltaLabel: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline) {
+                Text(title).font(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 4)
+                if let delta {
+                    HStack(spacing: 2) {
+                        Image(systemName: delta >= 0 ? "arrow.up.right" : "arrow.down.right").font(.system(size: 8, weight: .bold))
+                        Text(String(format: "%.0f%%", abs(delta) * 100))
+                    }
+                    .font(.caption2.monospacedDigit().weight(.medium)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(.quaternary, in: Capsule())
+                    .help("\(delta >= 0 ? "Up" : "Down") \(String(format: "%.0f%%", abs(delta) * 100)) against \(deltaLabel ?? "the previous period")")
+                }
+            }
             Text(value).font(.system(.title2, design: .rounded, weight: .semibold)).monospacedDigit()
                 .lineLimit(1).minimumScaleFactor(0.7)
             if let footnote {
@@ -453,11 +493,17 @@ struct ModelTable: View {
     let showProvider: Bool
 
     var body: some View {
+        // Reasoning tokens are only reported by Claude Code and Codex; hide the column otherwise.
+        let showThinking = models.contains { $0.totals.reasoningTokens > 0 }
         VStack(spacing: 0) {
             HStack {
                 Text("Model").frame(maxWidth: .infinity, alignment: .leading)
                 Text("Tokens").frame(width: 80, alignment: .trailing)
                 Text("Reqs").frame(width: 60, alignment: .trailing)
+                if showThinking {
+                    Text("Thinking").frame(width: 70, alignment: .trailing)
+                        .help("Share of output tokens spent on reasoning, where the tool reports it")
+                }
                 Text("Cost").frame(width: 90, alignment: .trailing)
             }
             .font(.caption).foregroundStyle(.secondary)
@@ -472,6 +518,11 @@ struct ModelTable: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     Text(Fmt.tokens(m.totals.totalTokens)).frame(width: 80, alignment: .trailing).foregroundStyle(.secondary)
                     Text(m.totals.requests > 0 ? Fmt.count(m.totals.requests) : "—").frame(width: 60, alignment: .trailing).foregroundStyle(.secondary)
+                    if showThinking {
+                        Text(m.totals.thinkingShare.map { String(format: "%.0f%%", $0 * 100) } ?? "—")
+                            .frame(width: 70, alignment: .trailing).foregroundStyle(.secondary)
+                            .help(m.totals.reasoningTokens > 0 ? "\(Fmt.tokens(m.totals.reasoningTokens)) reasoning tokens of \(Fmt.tokens(m.totals.outputTokens)) output" : "No reasoning tokens reported")
+                    }
                     Text(Fmt.cost(m.totals.cost)).frame(width: 90, alignment: .trailing).fontWeight(.medium)
                 }
                 .font(.callout.monospacedDigit())

@@ -11,6 +11,8 @@ public struct ClaudeStatusLine: Sendable {
     }
 
     public static var defaultRecordURL: URL { AppSupport.directory().appendingPathComponent("claude-statusline.json") }
+    /// One JSON line per change of the percentages, appended by the helper; see `readHistory`.
+    public static var defaultHistoryURL: URL { AppSupport.directory().appendingPathComponent("claude-statusline-history.jsonl") }
     public static var defaultChainURL: URL { AppSupport.directory().appendingPathComponent("statusline-chain") }
     public static var defaultHelperURL: URL { AppSupport.directory().appendingPathComponent("bin/overhead-statusline") }
     public static var defaultSettingsURL: URL { LogFiles.home().appendingPathComponent(".claude/settings.json") }
@@ -47,6 +49,26 @@ public struct ClaudeStatusLine: Sendable {
         window("seven_day", title: "Weekly window", lengthMinutes: 10080)
         window("spend_limit", title: "Spend limit", lengthMinutes: nil)
         return Record(observedAt: observed, windows: windows, model: obj["model"] as? String)
+    }
+
+    /// Parse the helper's history file into samples, one per window per line. Each line has the
+    /// same shape as the record; windows are kept even if their reset has since passed, because
+    /// the point is to show what happened.
+    public static func readHistory(historyURL: URL = defaultHistoryURL) -> [PlanSample] {
+        guard let data = try? Data(contentsOf: historyURL, options: .mappedIfSafe) else { return [] }
+        var out: [PlanSample] = []
+        var start = data.startIndex
+        while start < data.endIndex {
+            let end = data[start...].firstIndex(of: 0x0A) ?? data.endIndex
+            defer { start = end + 1 }
+            guard end > start, let obj = try? JSONSerialization.jsonObject(with: data[start..<end]) as? [String: Any],
+                  let observed = (obj["observedAt"] as? NSNumber).map({ Date(timeIntervalSince1970: $0.doubleValue) }),
+                  let record = parse(obj, now: observed) else { continue }
+            for w in record.windows {
+                out.append(PlanSample(provider: .claudeCode, observedAt: observed, window: w.title, usedPercent: w.usedPercent, resetsAt: w.resetsAt))
+            }
+        }
+        return out
     }
 
     // MARK: Installing
@@ -104,9 +126,27 @@ public struct ClaudeStatusLine: Sendable {
         try saveSettings(settings, to: settingsURL, backup: true)
     }
 
-    /// Restore the previous status line (or remove ours) and delete the helper and its record.
+    /// Replace the installed helper copy when the app bundle ships a different build of it, so an
+    /// app update reaches the status line without reinstalling. Returns true when it was replaced.
+    @discardableResult
+    public static func refreshHelper(from helperSource: URL, helperURL: URL = defaultHelperURL) throws -> Bool {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: helperURL.path), fm.fileExists(atPath: helperSource.path) else { return false }
+        let installed = try Data(contentsOf: helperURL)
+        let bundled = try Data(contentsOf: helperSource)
+        guard installed != bundled else { return false }
+        let tmp = helperURL.appendingPathExtension("new")
+        try? fm.removeItem(at: tmp)
+        try fm.copyItem(at: helperSource, to: tmp)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmp.path)
+        _ = try fm.replaceItemAt(helperURL, withItemAt: tmp)
+        return true
+    }
+
+    /// Restore the previous status line (or remove ours) and delete the helper and its records.
     public static func remove(settingsURL: URL = defaultSettingsURL, helperURL: URL = defaultHelperURL,
-                              chainURL: URL = defaultChainURL, recordURL: URL = defaultRecordURL) throws {
+                              chainURL: URL = defaultChainURL, recordURL: URL = defaultRecordURL,
+                              historyURL: URL = defaultHistoryURL) throws {
         var settings = try loadSettings(settingsURL)
         if let current = (settings["statusLine"] as? [String: Any])?["command"] as? String, current == helperURL.path {
             if let chain = try? String(contentsOf: chainURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines), !chain.isEmpty {
@@ -118,7 +158,7 @@ public struct ClaudeStatusLine: Sendable {
             }
             try saveSettings(settings, to: settingsURL, backup: true)
         }
-        for url in [helperURL, chainURL, recordURL] { try? FileManager.default.removeItem(at: url) }
+        for url in [helperURL, chainURL, recordURL, historyURL] { try? FileManager.default.removeItem(at: url) }
     }
 
     static func loadSettings(_ url: URL) throws -> [String: Any] {

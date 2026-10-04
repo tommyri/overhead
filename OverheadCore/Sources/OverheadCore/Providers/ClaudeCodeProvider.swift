@@ -18,6 +18,8 @@ public struct ClaudeCodeProvider: UsageProvider {
         /// Portion of `cacheWrite` written with 1-hour TTL (priced at 2× instead of 1.25×).
         public var cacheWrite1h: Int
         public var cacheRead: Int
+        /// Thinking tokens (a subset of `output`), where the transcript reports them.
+        public var thinking: Int?
         /// Working directory of the session, when recorded.
         public var cwd: String?
         /// Lines added/removed by Edit/Write/MultiEdit/NotebookEdit calls in this response
@@ -39,7 +41,7 @@ public struct ClaudeCodeProvider: UsageProvider {
             home.appendingPathComponent(".claude/projects", isDirectory: true),
             home.appendingPathComponent("Library/Application Support/Claude/local-agent-mode-sessions", isDirectory: true),
         ]
-        self.cache = ParsedFileCache(name: "claude-code-v4", directory: cacheDirectory)
+        self.cache = ParsedFileCache(name: "claude-code-v5", directory: cacheDirectory)
     }
 
     public func fetch(interval: DateInterval, credentials: Credentials) async throws -> [UsageRecord] {
@@ -61,6 +63,11 @@ public struct ClaudeCodeProvider: UsageProvider {
     public var accountConfigURL: URL = LogFiles.home().appendingPathComponent(".claude.json")
     /// Written by the `overhead-statusline` helper when Claude Code is configured to use it.
     public var statusLineRecordURL: URL = ClaudeStatusLine.defaultRecordURL
+    public var statusLineHistoryURL: URL = ClaudeStatusLine.defaultHistoryURL
+
+    public func planHistory(interval: DateInterval, credentials: Credentials) async throws -> [PlanSample] {
+        ClaudeStatusLine.readHistory(historyURL: statusLineHistoryURL)
+    }
 
     public func planStatus(credentials: Credentials) async throws -> PlanStatus? {
         let suggestion = Self.detectPlan(configURL: accountConfigURL)
@@ -143,9 +150,13 @@ public struct ClaudeCodeProvider: UsageProvider {
             let cache_creation_input_tokens: Int?
             let cache_read_input_tokens: Int?
             let cache_creation: CacheCreation?
+            let output_tokens_details: OutputDetails?
             struct CacheCreation: Decodable {
                 let ephemeral_5m_input_tokens: Int?
                 let ephemeral_1h_input_tokens: Int?
+            }
+            struct OutputDetails: Decodable {
+                let thinking_tokens: Int?
             }
         }
     }
@@ -198,6 +209,7 @@ public struct ClaudeCodeProvider: UsageProvider {
                 cacheWrite: usage.cache_creation_input_tokens ?? 0,
                 cacheWrite1h: usage.cache_creation?.ephemeral_1h_input_tokens ?? 0,
                 cacheRead: usage.cache_read_input_tokens ?? 0,
+                thinking: usage.output_tokens_details?.thinking_tokens,
                 cwd: UsageRecord.projectKey(rec.cwd)
             )
             if byKey[key] == nil { order.append(key) }
@@ -310,6 +322,7 @@ public struct ClaudeCodeProvider: UsageProvider {
             r.cacheWriteTokens += e.cacheWrite
             r.cacheReadTokens += e.cacheRead
             r.requests += 1
+            r.reasoningTokens += min(e.thinking ?? 0, e.output)
             records[rid] = r
             oneHourWrites[rid, default: 0] += min(e.cacheWrite1h, e.cacheWrite)
         }

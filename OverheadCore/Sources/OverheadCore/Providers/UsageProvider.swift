@@ -77,6 +77,9 @@ public protocol UsageProvider: Sendable {
     func codeActivity(interval: DateInterval, credentials: Credentials) async throws -> [CodeActivity]
     /// Tool calls per tool and day. Empty when the source has no such data.
     func toolActivity(interval: DateInterval, credentials: Credentials) async throws -> [ToolActivity]
+    /// Past observations of the plan windows, when the source records them itself (Codex logs,
+    /// the Claude status-line helper). Empty otherwise; the app then samples `planStatus`.
+    func planHistory(interval: DateInterval, credentials: Credentials) async throws -> [PlanSample]
 }
 
 public extension UsageProvider {
@@ -85,6 +88,7 @@ public extension UsageProvider {
     func planStatus(credentials: Credentials) async throws -> PlanStatus? { nil }
     func codeActivity(interval: DateInterval, credentials: Credentials) async throws -> [CodeActivity] { [] }
     func toolActivity(interval: DateInterval, credentials: Credentials) async throws -> [ToolActivity] { [] }
+    func planHistory(interval: DateInterval, credentials: Credentials) async throws -> [PlanSample] { [] }
 
     func isConfigured(_ credentials: Credentials) -> Bool {
         credentialFields.filter { !$0.isOptional }.allSatisfy { field in

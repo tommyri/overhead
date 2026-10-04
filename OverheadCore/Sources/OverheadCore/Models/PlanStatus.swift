@@ -44,14 +44,15 @@ public struct PlanStatus: Codable, Sendable, Hashable {
         self.suggestedPlan = suggestedPlan
     }
 
-    /// "5-hour window", "Weekly window" from a window length.
+    /// "5-hour window", "Weekly window" from a window length. Lengths are rounded, because Codex
+    /// reports the same window as 299 or 300 minutes (10079 or 10080) from one snapshot to the next.
     public static func windowTitle(minutes: Int) -> String {
         switch minutes {
         case 0: return "Usage window"
         case ..<120: return "\(minutes)-minute window"
-        case ..<1440: return "\(minutes / 60)-hour window"
-        case 10080: return "Weekly window"
-        default: return "\(minutes / 1440)-day window"
+        case ..<1440: return "\(Int((Double(minutes) / 60).rounded()))-hour window"
+        case 9_900...10_260: return "Weekly window"
+        default: return "\(Int((Double(minutes) / 1440).rounded()))-day window"
         }
     }
 }

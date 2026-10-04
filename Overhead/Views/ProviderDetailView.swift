@@ -30,12 +30,21 @@ struct ProviderDetailView: View {
                 .padding(12)
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
 
-                StatRow(totals: totals, days: dayCount, paid: model.paidSummary(in: model.currentInterval, providers: [provider]))
+                StatRow(totals: totals, days: dayCount, paid: model.paidSummary(in: model.currentInterval, providers: [provider]),
+                        comparison: model.previousTotals(for: provider).map { StatComparison(totals: $0, label: model.rangePreset.previousLabel) },
+                        cacheSavings: UsageAggregator.cacheSavings(records))
 
                 if let ps = model.planStatus[provider], !ps.windows.isEmpty {
                     // Prefer the user's (or detected) billing-plan name over the raw API tier.
                     ChartCard(title: "\(model.billingPlan(for: provider).planName ?? ps.planName ?? "Plan") usage") {
                         PlanStatusView(status: ps)
+                    }
+                }
+
+                let history = model.planHistory(for: provider)
+                if history.count >= 2 {
+                    ChartCard(title: "Plan usage over time") {
+                        PlanHistoryView(provider: provider, samples: history, interval: model.currentInterval, threshold: model.alertThreshold)
                     }
                 }
 
@@ -87,7 +96,7 @@ struct ProviderDetailView: View {
                     }
 
                     ChartCard(title: "Token breakdown") {
-                        TokenBreakdown(totals: totals)
+                        TokenBreakdown(totals: totals, cacheSavings: UsageAggregator.cacheSavings(records))
                     }
                 }
             }
@@ -101,9 +110,11 @@ struct ProviderDetailView: View {
     }
 }
 
-/// Horizontal single-bar composition of the four token classes.
+/// Horizontal single-bar composition of the four token classes, with what caching saved and
+/// how much of the output was reasoning.
 struct TokenBreakdown: View {
     let totals: UsageAggregator.Totals
+    var cacheSavings: UsageAggregator.CacheSavings? = nil
 
     private var parts: [(String, Int, Color)] {
         [
@@ -138,6 +149,15 @@ struct TokenBreakdown: View {
                 }
                 Spacer()
             }
+            VStack(alignment: .leading, spacing: 3) {
+                if let s = cacheSavings, let rate = totals.cacheHitRate {
+                    Text("Prompt caching served \(String(format: "%.0f%%", rate * 100)) of prompt tokens from cache and saved about \(Fmt.usd(s.saved)) at list prices: \(Fmt.usd(s.withCache, estimate: true)) instead of \(Fmt.usd(s.withoutCache, estimate: true)) had every prompt token been fresh input.")
+                }
+                if let share = totals.thinkingShare {
+                    Text("Reasoning: \(Fmt.tokens(totals.reasoningTokens)) of the \(Fmt.tokens(totals.outputTokens)) output tokens (\(String(format: "%.0f%%", share * 100))) were thinking, where the tool reports it.")
+                }
+            }
+            .font(.caption).foregroundStyle(.secondary)
         }
     }
 }

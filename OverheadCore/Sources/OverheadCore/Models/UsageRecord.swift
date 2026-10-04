@@ -23,6 +23,10 @@ public struct UsageRecord: Codable, Hashable, Sendable, Identifiable {
     public var cacheReadTokens: Int
     /// Number of model invocations / requests, when known.
     public var requests: Int
+    /// Reasoning ("thinking") tokens, a subset of `outputTokens`, where the source reports them
+    /// (Claude Code `output_tokens_details.thinking_tokens`, Codex `reasoning_output_tokens`).
+    /// 0 when the source does not say.
+    public var reasoningTokens: Int
 
     /// Cost in USD. `reported` comes straight from a billing endpoint; `estimated` was
     /// computed locally from list prices; `unknown` means neither was possible.
@@ -55,6 +59,7 @@ public struct UsageRecord: Codable, Hashable, Sendable, Identifiable {
         cacheWriteTokens: Int = 0,
         cacheReadTokens: Int = 0,
         requests: Int = 0,
+        reasoningTokens: Int = 0,
         cost: Cost = .unknown
     ) {
         self.provider = provider
@@ -66,7 +71,28 @@ public struct UsageRecord: Codable, Hashable, Sendable, Identifiable {
         self.cacheWriteTokens = cacheWriteTokens
         self.cacheReadTokens = cacheReadTokens
         self.requests = requests
+        self.reasoningTokens = reasoningTokens
         self.cost = cost
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case provider, day, model, project, inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens, requests, reasoningTokens, cost
+    }
+
+    /// Fields added later are optional on decode so older cache files still load.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        provider = try c.decode(ProviderID.self, forKey: .provider)
+        day = try c.decode(Date.self, forKey: .day)
+        model = try c.decode(String.self, forKey: .model)
+        project = try c.decodeIfPresent(String.self, forKey: .project)
+        inputTokens = try c.decode(Int.self, forKey: .inputTokens)
+        outputTokens = try c.decode(Int.self, forKey: .outputTokens)
+        cacheWriteTokens = try c.decode(Int.self, forKey: .cacheWriteTokens)
+        cacheReadTokens = try c.decode(Int.self, forKey: .cacheReadTokens)
+        requests = try c.decode(Int.self, forKey: .requests)
+        reasoningTokens = try c.decodeIfPresent(Int.self, forKey: .reasoningTokens) ?? 0
+        cost = try c.decode(Cost.self, forKey: .cost)
     }
 
     /// All tokens that went through the model, regardless of cache status.
@@ -96,6 +122,7 @@ public struct UsageRecord: Codable, Hashable, Sendable, Identifiable {
         cacheWriteTokens += other.cacheWriteTokens
         cacheReadTokens += other.cacheReadTokens
         requests += other.requests
+        reasoningTokens += other.reasoningTokens
         cost = Cost.sum(cost, other.cost)
     }
 }

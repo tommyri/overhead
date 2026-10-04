@@ -27,8 +27,19 @@ public enum UsageAggregator {
         public var cacheWriteTokens = 0
         public var cacheReadTokens = 0
         public var requests = 0
+        /// Reasoning tokens, a subset of `outputTokens`; 0 where no source reported them.
+        public var reasoningTokens = 0
         public var cost: UsageRecord.Cost = .unknown
         public var totalTokens: Int { inputTokens + outputTokens + cacheWriteTokens + cacheReadTokens }
+        /// Share of output tokens spent on reasoning, when any were reported.
+        public var thinkingShare: Double? {
+            reasoningTokens > 0 && outputTokens > 0 ? Double(reasoningTokens) / Double(outputTokens) : nil
+        }
+        /// Share of prompt tokens served from cache.
+        public var cacheHitRate: Double? {
+            let prompt = inputTokens + cacheReadTokens + cacheWriteTokens
+            return prompt > 0 ? Double(cacheReadTokens) / Double(prompt) : nil
+        }
 
         public init() {}
 
@@ -38,8 +49,57 @@ public enum UsageAggregator {
             cacheWriteTokens += r.cacheWriteTokens
             cacheReadTokens += r.cacheReadTokens
             requests += r.requests
+            reasoningTokens += r.reasoningTokens
             cost = .sum(cost, r.cost)
         }
+    }
+
+    // MARK: Cache savings
+
+    /// What prompt caching saved, at list prices, over the records whose model has a price.
+    public struct CacheSavings: Sendable, Hashable {
+        /// List-price cost with caching as it happened (the record's own estimate where it has one).
+        public var withCache: Double
+        /// What the same tokens would have cost had every prompt token been billed as fresh input.
+        public var withoutCache: Double
+        public var saved: Double { withoutCache - withCache }
+        /// Share of prompt tokens read from cache, over the priced records.
+        public var cacheHitRate: Double
+        public init(withCache: Double, withoutCache: Double, cacheHitRate: Double) {
+            self.withCache = withCache; self.withoutCache = withoutCache; self.cacheHitRate = cacheHitRate
+        }
+    }
+
+    /// Both sides are list-price arithmetic, so the result says what caching is worth at the
+    /// vendor's API prices. A billed amount (Cursor's plan cents, an API invoice) is not used
+    /// for the "with cache" side, since it is not a per-token price and would make the
+    /// difference meaningless; an estimated record's own cost is, because that is the same
+    /// arithmetic including the 1-hour cache-write premium. nil when no record's model is in
+    /// the price table (so nothing can be compared).
+    public static func cacheSavings(_ records: [UsageRecord]) -> CacheSavings? {
+        var with = 0.0, without = 0.0, prompt = 0, read = 0, priced = false
+        for r in records {
+            let promptTokens = r.inputTokens + r.cacheReadTokens + r.cacheWriteTokens
+            guard let full = PriceTable.estimate(model: r.model, input: promptTokens, output: r.outputTokens, cacheRead: 0, cacheWrite: 0) else { continue }
+            let actual: Double
+            if case .estimated(let v) = r.cost {
+                actual = v
+            } else {
+                actual = PriceTable.estimate(model: r.model, input: r.inputTokens, output: r.outputTokens, cacheRead: r.cacheReadTokens, cacheWrite: r.cacheWriteTokens) ?? full
+            }
+            with += actual; without += full
+            prompt += promptTokens; read += r.cacheReadTokens
+            priced = true
+        }
+        guard priced else { return nil }
+        return CacheSavings(withCache: with, withoutCache: without, cacheHitRate: prompt > 0 ? Double(read) / Double(prompt) : 0)
+    }
+
+    /// Relative change from `previous` to `current` (0.18 = +18%). nil when there is nothing to
+    /// compare against.
+    public static func change(_ current: Double, from previous: Double) -> Double? {
+        guard previous > 0 else { return nil }
+        return (current - previous) / previous
     }
 
     public static func totals(_ records: [UsageRecord]) -> Totals {

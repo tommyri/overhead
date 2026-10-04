@@ -8,20 +8,21 @@ enum DemoData {
 
     static let providers: [ProviderID] = [.claudeCode, .codexCLI, .cursor, .anthropicAPI]
 
-    /// Thirty days of plausible usage with a weekly rhythm and a couple of busy days.
+    /// Sixty days of plausible usage with a weekly rhythm and a couple of busy days (two months,
+    /// so the previous-period deltas have something to compare against).
     static func records(now: Date = Date(), calendar: Calendar = .current) -> [UsageRecord] {
         var rng = SeededGenerator(seed: 20261004)
         let today = calendar.startOfDay(for: now)
         var out: [UsageRecord] = []
 
-        struct Model { let provider: ProviderID; let id: String; let share: Double; let inPerReq: Int; let outPerReq: Int; let cacheRatio: Double; let centsPerReq: Double? }
+        struct Model { let provider: ProviderID; let id: String; let share: Double; let inPerReq: Int; let outPerReq: Int; let cacheRatio: Double; let centsPerReq: Double?; var thinking: Double = 0 }
         // Per-request shapes modelled on real agentic-coding traffic: small fresh input, large
         // cached context re-read every turn, and (for Cursor) the cents the plan deducts.
         let models: [Model] = [
-            Model(provider: .claudeCode,   id: "claude-opus-5-5",   share: 0.6,  inPerReq: 110,  outPerReq: 2400, cacheRatio: 2600, centsPerReq: nil),
-            Model(provider: .claudeCode,   id: "claude-sonnet-5-5", share: 0.4,  inPerReq: 90,   outPerReq: 1600, cacheRatio: 1900, centsPerReq: nil),
-            Model(provider: .codexCLI,     id: "gpt-6-astra",       share: 0.7,  inPerReq: 4200, outPerReq: 320,  cacheRatio: 28,   centsPerReq: nil),
-            Model(provider: .codexCLI,     id: "gpt-5.6-sol",       share: 0.3,  inPerReq: 3000, outPerReq: 280,  cacheRatio: 30,   centsPerReq: nil),
+            Model(provider: .claudeCode,   id: "claude-opus-5-5",   share: 0.6,  inPerReq: 110,  outPerReq: 2400, cacheRatio: 2600, centsPerReq: nil, thinking: 0.46),
+            Model(provider: .claudeCode,   id: "claude-sonnet-5-5", share: 0.4,  inPerReq: 90,   outPerReq: 1600, cacheRatio: 1900, centsPerReq: nil, thinking: 0.31),
+            Model(provider: .codexCLI,     id: "gpt-6-astra",       share: 0.7,  inPerReq: 4200, outPerReq: 320,  cacheRatio: 28,   centsPerReq: nil, thinking: 0.27),
+            Model(provider: .codexCLI,     id: "gpt-5.6-sol",       share: 0.3,  inPerReq: 3000, outPerReq: 280,  cacheRatio: 30,   centsPerReq: nil, thinking: 0.19),
             Model(provider: .cursor,       id: "claude-4.6-opus-high-thinking", share: 0.35, inPerReq: 40, outPerReq: 2200, cacheRatio: 35, centsPerReq: 22),
             Model(provider: .cursor,       id: "grok-4.7",          share: 0.35, inPerReq: 30,   outPerReq: 900,  cacheRatio: 30,   centsPerReq: 6),
             Model(provider: .cursor,       id: "composer-2.5-fast", share: 0.3,  inPerReq: 25,   outPerReq: 600,  cacheRatio: 20,   centsPerReq: 2),
@@ -32,11 +33,12 @@ enum DemoData {
         let projects = ["\(home)/dev/overhead", "\(home)/dev/acme-api", "\(home)/dev/acme-web", "\(home)/dev/infra", "\(home)/dev/dotfiles"]
         let projectWeights = [0.42, 0.28, 0.16, 0.09, 0.05]
 
-        for offset in stride(from: 29, through: 0, by: -1) {
+        for offset in stride(from: 59, through: 0, by: -1) {
             let day = calendar.date(byAdding: .day, value: -offset, to: today)!
             let weekday = calendar.component(.weekday, from: day)
             let weekend = weekday == 1 || weekday == 7
-            let dayFactor = (weekend ? 0.25 : 1.0) * (0.55 + rng.nextDouble() * 0.9) * (offset == 9 || offset == 17 ? 2.4 : 1)
+            // The earlier month ran a little quieter, so the deltas read as growth.
+            let dayFactor = (weekend ? 0.25 : 1.0) * (0.55 + rng.nextDouble() * 0.9) * (offset == 9 || offset == 17 ? 2.4 : 1) * (offset >= 30 ? 0.82 : 1)
             for m in models {
                 let totalReqs = max(0, Int(Double(dailyRequests[m.provider]!) * m.share * dayFactor * (0.8 + rng.nextDouble() * 0.4)))
                 guard totalReqs > 0 else { continue }
@@ -54,7 +56,8 @@ enum DemoData {
                 let output = reqs * m.outPerReq
                 var rec = UsageRecord(provider: m.provider, day: day, model: m.id, project: project,
                                       inputTokens: input, outputTokens: output,
-                                      cacheWriteTokens: cacheWrite, cacheReadTokens: cacheRead, requests: reqs)
+                                      cacheWriteTokens: cacheWrite, cacheReadTokens: cacheRead, requests: reqs,
+                                      reasoningTokens: Int(Double(output) * m.thinking))
                 if let cents = m.centsPerReq {
                     rec.cost = .reported(Double(reqs) * cents / 100)
                 } else if m.provider == .anthropicAPI,
@@ -147,6 +150,54 @@ enum DemoData {
         default:
             return nil
         }
+    }
+
+    /// Plan-window history for the "Plan usage over time" chart, consistent with `planStatus`:
+    /// 5-hour periods during working hours that ramp up and reset, weekly windows that climb
+    /// through the week, and for Cursor the monthly budget ramp.
+    static func planHistory(for provider: ProviderID, now: Date = Date(), calendar: Calendar = .current) -> [PlanSample] {
+        guard let status = planStatus(for: provider, now: now) else { return [] }
+        var rng = SeededGenerator(seed: UInt64(provider.paletteSlot) &* 991)
+        let start = calendar.date(byAdding: .day, value: -30, to: now)!
+        var out: [PlanSample] = []
+        for w in status.windows {
+            guard let reset = w.resetsAt, let periodStart = w.periodStart else { continue }
+            let length = reset.timeIntervalSince(periodStart)
+            let shortWindow = length <= 6 * 3600
+            let perPeriod = shortWindow ? 8 : (length <= 8 * 86_400 ? 20 : 30)
+            var pStart = periodStart, pEnd = reset, isCurrent = true
+            while pEnd > start {
+                let weekday = calendar.component(.weekday, from: pStart)
+                let weekend = weekday == 1 || weekday == 7
+                let busy = isCurrent || !shortWindow || (!weekend && rng.nextDouble() < 0.72)
+                if busy {
+                    let peak = isCurrent ? w.usedPercent : 25 + rng.nextDouble() * 70
+                    let activeEnd = isCurrent ? now : pStart.addingTimeInterval(length * (0.6 + rng.nextDouble() * 0.4))
+                    for i in 1...perPeriod {
+                        let frac = Double(i) / Double(perPeriod)
+                        let at = pStart.addingTimeInterval(activeEnd.timeIntervalSince(pStart) * frac)
+                        guard at >= start, at <= now else { continue }
+                        let jitter = isCurrent && i == perPeriod ? 1 : 0.97 + rng.nextDouble() * 0.06
+                        let value = peak * pow(frac, 0.85) * jitter
+                        out.append(PlanSample(provider: provider, observedAt: at, window: w.title, usedPercent: min(100, value.rounded()), resetsAt: pEnd))
+                    }
+                }
+                // Step back one period; 5-hour periods skip the night and resume the previous evening.
+                pEnd = pStart
+                pStart = pEnd.addingTimeInterval(-length)
+                if shortWindow {
+                    let hour = calendar.component(.hour, from: pStart)
+                    if hour < 8 || hour >= 22 {
+                        let day = calendar.startOfDay(for: pStart)
+                        let previousEvening = calendar.date(byAdding: .hour, value: 21, to: hour < 8 ? calendar.date(byAdding: .day, value: -1, to: day)! : day)!
+                        pEnd = previousEvening
+                        pStart = pEnd.addingTimeInterval(-length)
+                    }
+                }
+                isCurrent = false
+            }
+        }
+        return out.sorted { $0.observedAt < $1.observedAt }
     }
 
     static let billingPlans: [ProviderID: BillingPlan] = [

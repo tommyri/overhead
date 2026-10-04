@@ -41,4 +41,34 @@ public enum DateRangePreset: String, CaseIterable, Codable, Sendable, Identifiab
             return DateInterval(start: lastMonthStart, end: thisMonthStart)
         }
     }
+
+    /// The comparable period before this one, for "vs previous period" deltas: the same number
+    /// of days ending where this range starts; for "This month" the same elapsed days of the
+    /// previous month; for "Last month" the whole month before.
+    public func previousInterval(now: Date = Date(), calendar: Calendar = .current) -> DateInterval {
+        let current = interval(now: now, calendar: calendar)
+        let days = max(1, calendar.dateComponents([.day], from: current.start, to: current.end).day ?? 1)
+        switch self {
+        case .thisMonth:
+            let start = calendar.date(byAdding: .month, value: -1, to: current.start)!
+            let end = min(current.start, calendar.date(byAdding: .day, value: days, to: start)!)
+            return DateInterval(start: start, end: end)
+        case .lastMonth:
+            return DateInterval(start: calendar.date(byAdding: .month, value: -1, to: current.start)!, end: current.start)
+        default:
+            return DateInterval(start: calendar.date(byAdding: .day, value: -days, to: current.start)!, end: current.start)
+        }
+    }
+
+    /// How the previous period is described next to a delta.
+    public var previousLabel: String {
+        switch self {
+        case .today:     return "yesterday"
+        case .last7:     return "the previous 7 days"
+        case .last30:    return "the previous 30 days"
+        case .last90:    return "the previous 90 days"
+        case .thisMonth: return "the same days last month"
+        case .lastMonth: return "the month before"
+        }
+    }
 }
