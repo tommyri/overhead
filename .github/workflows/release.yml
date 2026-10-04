@@ -16,6 +16,11 @@ on:
         required: true
 permissions:
   contents: write
+# Releases run one at a time and are never cancelled: an interrupted run could leave a
+# release with a partial set of assets.
+concurrency:
+  group: release
+  cancel-in-progress: false
 jobs:
   release:
     runs-on: macos-latest

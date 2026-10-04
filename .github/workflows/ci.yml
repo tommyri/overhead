@@ -3,6 +3,10 @@ on:
   push:
     branches: [main]
   pull_request:
+# A newer push to the same branch or PR supersedes a run still in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   test-and-build:
     runs-on: macos-latest
