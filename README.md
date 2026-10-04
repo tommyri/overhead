@@ -12,7 +12,7 @@ A native macOS app (SwiftUI, menu bar + window) that shows how much you use and 
 
 | Menu bar | Settings → Providers |
 |---|---|
-| <img src="docs/screenshots/menubar.png" width="420" alt="Menu bar popover with today's and this month's spend per provider"> | <img src="docs/screenshots/settings.png" width="420" alt="Provider settings with credentials, import button and billing plan"> |
+| <img src="docs/screenshots/menubar.png" width="420" alt="Menu bar popover with today's and this month's spend per provider"> | <img src="docs/screenshots/settings.png" width="420" alt="Provider settings with the auto-detected billing plan"> |
 
 ## Providers
 
