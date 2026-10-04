@@ -27,7 +27,7 @@ xcodegen generate --quiet
 xcodebuild -project LLMOverview.xcodeproj -scheme LLMOverview -configuration Release \
   -derivedDataPath build/DerivedData \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$identity" DEVELOPMENT_TEAM="$team" \
-  PROVISIONING_PROFILE_SPECIFIER="" \
+  PROVISIONING_PROFILE_SPECIFIER="" CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
   build 2>&1 | grep -E "error:|warning: .*sign|BUILD (SUCCEEDED|FAILED)" || true
 
 BUILT="build/DerivedData/Build/Products/Release/$APP_NAME.app"

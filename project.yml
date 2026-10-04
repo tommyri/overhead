@@ -7,6 +7,11 @@ options:
   createIntermediateGroups: true
   generateEmptyDirectories: true
 settings:
+  configs:
+    Release:
+      # Xcode injects the debugger entitlement (get-task-allow) into `build` actions by
+      # default; notarization rejects binaries that carry it.
+      CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
   base:
     SWIFT_VERSION: "6.0"
     MACOSX_DEPLOYMENT_TARGET: "15.0"

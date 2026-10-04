@@ -51,7 +51,7 @@ xcodebuild -project LLMOverview.xcodeproj -scheme LLMOverview -configuration Rel
   -derivedDataPath build/DerivedData \
   MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$IDENTITY" DEVELOPMENT_TEAM="$TEAM" \
-  PROVISIONING_PROFILE_SPECIFIER="" OTHER_CODE_SIGN_FLAGS="--timestamp" \
+  PROVISIONING_PROFILE_SPECIFIER="" CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO OTHER_CODE_SIGN_FLAGS="--timestamp" \
   build 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
 BUILT="build/DerivedData/Build/Products/Release/$APP_NAME.app"
 [ -d "$BUILT" ] || { echo "Build failed"; exit 1; }
