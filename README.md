@@ -59,6 +59,10 @@ Costs marked `≈` are estimates computed from the vendor's published list price
 
 Download the latest `Overhead-<version>.dmg` from the [Releases page](../../releases), open it and drag Overhead to Applications. Releases are signed with a Developer ID certificate and notarized by Apple.
 
+## How the data is gathered
+
+[docs/DATA-SOURCES.md](docs/DATA-SOURCES.md) describes, per provider and per data type, which files or endpoints are read, how duplicates are removed, how costs are estimated, how projects, plan tiers and code output are derived, and what is deliberately not collected.
+
 ## Privacy
 
 Overhead runs entirely on your Mac and has no telemetry or backend of its own.

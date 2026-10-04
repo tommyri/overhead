@@ -6,6 +6,9 @@ The release script uses a version's section below as the GitHub release notes.
 
 ## [Unreleased]
 
+### Documentation
+- `docs/DATA-SOURCES.md` explains how every type of data is gathered per provider: files and endpoints, deduplication, cost estimation, project and tier derivation, code-output counting, caching, and what is not collected.
+
 ### Added
 - AI code output: lines of code accepted from each tool per day, with a chart and a per-source table. Claude Code and Codex counts come from edit tool calls and `apply_patch` calls whose result was not an error; Cursor's Tab and Composer suggested-vs-accepted lines come from the statistics Cursor keeps locally. Shown on the overview and on provider pages.
 - Plan-limit alerts: optional macOS notifications when a Codex or Cursor usage window passes a chosen threshold (70/80/90%) or is on pace to run out before it resets; the menu bar icon switches to a warning symbol and the popover lists each window with its state. Settings → General has the toggle, threshold and a test button.
