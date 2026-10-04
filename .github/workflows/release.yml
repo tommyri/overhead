@@ -9,6 +9,11 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build and publish (e.g. 0.1.1); the release v<version> is created or its assets replaced"
+        required: true
 permissions:
   contents: write
 jobs:
@@ -55,4 +60,5 @@ jobs:
       - name: Build, notarize and publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/release.sh "${GITHUB_REF_NAME#v}" --publish
+          INPUT_VERSION: ${{ inputs.version }}
+        run: ./scripts/release.sh "${INPUT_VERSION:-${GITHUB_REF_NAME#v}}" --publish
