@@ -24,7 +24,7 @@ A native macOS app (SwiftUI, menu bar + window) that shows how much you use and 
 
 | Provider | How data is obtained | What you get |
 |---|---|---|
-| **Claude Code** | Parses `~/.claude/projects/**/*.jsonl` (and the Claude desktop app's agent-mode logs). No setup. | Tokens per model, project and day, request counts, cost **estimated** from list prices (incl. 5m/1h cache-write pricing). |
+| **Claude Code** | Parses `~/.claude/projects/**/*.jsonl` (and the Claude desktop app's agent-mode logs). No setup. Optional status-line helper for plan windows. | Tokens per model, project and day, request counts, cost **estimated** from list prices (incl. 5m/1h cache-write pricing); with the helper, the plan's 5-hour and weekly windows. |
 | **Codex CLI** | Parses `~/.codex/sessions/**/*.jsonl` and `archived_sessions`. No setup. | Tokens per model, project and day, API-equivalent cost estimate, and your ChatGPT plan's 5-hour / weekly usage windows. |
 | **Anthropic API** | Admin API key (`sk-ant-admin…`). | Org-wide token usage by model plus billed cost from the cost report. |
 | **OpenAI API** | Admin API key (`sk-admin…`). | Org-wide completions usage by model plus billed cost by line item. |
@@ -37,7 +37,7 @@ A native macOS app (SwiftUI, menu bar + window) that shows how much you use and 
 Subscriptions are covered as far as their coding tools expose them, not beyond:
 
 - **ChatGPT plan** (Plus, Pro, Business): Codex writes the plan tier and its rolling usage windows into its logs, so Overhead shows those. Your use of the ChatGPT app itself (conversations, images, deep research) is not exposed by any official API and is not shown.
-- **Claude plan** (Pro, Max, Team seat): Claude Code's local logs give tokens and the account profile gives the tier. The claude.ai chat usage and the plan's 5-hour/weekly windows come from an undocumented endpoint that Anthropic's terms reserve for its own clients, so they are not shown.
+- **Claude plan** (Pro, Max, Team seat): Claude Code's local logs give tokens and the account profile gives the tier. The plan's 5-hour and weekly windows are available through the optional status-line helper (Settings → Providers → Claude Code), which records what Claude Code hands to its status line. claude.ai chat usage itself is not exposed anywhere official and is not shown.
 - **Grok** (grok.com, X Premium): no API at all. Grok usage inside Cursor is captured through Cursor.
 
 ### A note on Cursor personal plans
@@ -88,7 +88,7 @@ Pass a directory to install elsewhere, e.g. `./scripts/install.sh ~/Applications
 
 For development, `./scripts/run.sh` builds and launches from the build folder, or open `Overhead.xcodeproj` in Xcode (after `xcodegen generate`) and press Run.
 
-Navigate with the sidebar, the Go menu, or ⌘1 for the overview and ⌘2… for each provider; provider rows on the overview are clickable too. Settings → General has plan-limit alerts (a notification when a Codex or Cursor window passes 70/80/90% or is on pace to run out before it resets; the menu bar icon turns into a warning sign meanwhile) and a "Launch at login" toggle (uses `SMAppService`; the app should live in /Applications for that).
+Navigate with the sidebar, the Go menu, or ⌘1 for the overview and ⌘2… for each provider; provider rows on the overview are clickable too. Settings → General has plan-limit alerts (a notification when a Codex, Cursor or Claude window passes 70/80/90% or is on pace to run out before it resets; the menu bar icon turns into a warning sign meanwhile) and a "Launch at login" toggle (uses `SMAppService`; the app should live in /Applications for that).
 
 ### Releasing a notarized DMG
 

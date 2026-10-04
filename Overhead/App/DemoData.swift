@@ -139,8 +139,11 @@ enum DemoData {
                 .init(title: "Other models", usedPercent: 31),
             ], note: nil, suggestedPlan: .init(name: "Cursor Pro", monthlyFeeUSD: 20, source: "cursor.com account"))
         case .claudeCode:
-            return PlanStatus(planName: "Claude Max 5x", observedAt: now, windows: [],
-                              suggestedPlan: .init(name: "Claude Max 5x", monthlyFeeUSD: 100, source: "~/.claude.json"))
+            return PlanStatus(planName: "Claude Max 5x", observedAt: now.addingTimeInterval(-300), windows: [
+                .init(title: "5-hour window", usedPercent: 58, resetsAt: now.addingTimeInterval(1.4 * 3600), periodStart: now.addingTimeInterval(-3.6 * 3600)),
+                .init(title: "Weekly window", usedPercent: 46, resetsAt: cal.date(byAdding: .day, value: 4, to: now), periodStart: cal.date(byAdding: .day, value: -3, to: now)),
+            ], note: "Windows are recorded while Claude Code runs; they update on its next response.",
+               suggestedPlan: .init(name: "Claude Max 5x", monthlyFeeUSD: 100, source: "~/.claude.json"))
         default:
             return nil
         }

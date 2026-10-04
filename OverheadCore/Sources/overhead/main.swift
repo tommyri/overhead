@@ -2,7 +2,22 @@ import Foundation
 import OverheadCore
 setbuf(stdout, nil)
 
-// Usage: overhead [days]   — prints per-provider, per-model totals from local logs.
+// Usage: overhead [days]                          — per-provider, per-model totals from local logs
+//        overhead statusline install|remove|status — manage the Claude Code status-line helper
+if CommandLine.arguments.dropFirst().first == "statusline" {
+    let action = CommandLine.arguments.dropFirst(2).first ?? "status"
+    let bundled = URL(fileURLWithPath: "/Applications/Overhead.app/Contents/MacOS/overhead-statusline")
+    do {
+        switch action {
+        case "install": try ClaudeStatusLine.install(helperSource: bundled); print("Installed. Claude Code will record plan windows on its next response.")
+        case "remove": try ClaudeStatusLine.remove(); print("Removed; previous status line restored if there was one.")
+        default: break
+        }
+        let st = ClaudeStatusLine.status()
+        print("installed: \(st.installed)  chained: \(st.chainedCommand ?? "none")  last record: \(st.lastRecord.map { "\($0)" } ?? "never")  windows: \(st.hasWindows)")
+    } catch { print("error: \(error.localizedDescription)"); exit(1) }
+    exit(0)
+}
 let days = Int(CommandLine.arguments.dropFirst().first ?? "") ?? 30
 let cal = Calendar.current
 let end = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date()))!

@@ -59,10 +59,28 @@ public struct ClaudeCodeProvider: UsageProvider {
     /// `~/.claude.json` (`oauthAccount`). No usage windows are available locally, so this only
     /// yields the plan name and list price.
     public var accountConfigURL: URL = LogFiles.home().appendingPathComponent(".claude.json")
+    /// Written by the `overhead-statusline` helper when Claude Code is configured to use it.
+    public var statusLineRecordURL: URL = ClaudeStatusLine.defaultRecordURL
 
     public func planStatus(credentials: Credentials) async throws -> PlanStatus? {
-        guard let suggestion = Self.detectPlan(configURL: accountConfigURL) else { return nil }
-        return PlanStatus(planName: suggestion.name, observedAt: Date(), windows: [], note: nil, suggestedPlan: suggestion)
+        let suggestion = Self.detectPlan(configURL: accountConfigURL)
+        let record = ClaudeStatusLine.read(recordURL: statusLineRecordURL)
+        guard suggestion != nil || record != nil else { return nil }
+        let note: String?
+        if let record {
+            note = record.windows.isEmpty
+                ? "The status line ran \(Self.relative(record.observedAt)) but Claude Code reported no rate-limit windows; Anthropic documents them for claude.ai Pro and Max plans."
+                : "Windows are recorded while Claude Code runs; they update on its next response."
+        } else {
+            note = "Rolling-window limits need the status-line helper (Settings → Providers → Claude Code)."
+        }
+        return PlanStatus(planName: suggestion?.name, observedAt: record?.observedAt ?? Date(),
+                          windows: record?.windows ?? [], note: note, suggestedPlan: suggestion)
+    }
+
+    private static func relative(_ d: Date) -> String {
+        let f = RelativeDateTimeFormatter(); f.unitsStyle = .short
+        return f.localizedString(for: d, relativeTo: Date())
     }
 
     static func detectPlan(configURL: URL) -> PlanStatus.SuggestedPlan? {

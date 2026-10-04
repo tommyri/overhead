@@ -35,6 +35,11 @@ targets:
           - "**/.DS_Store"
     dependencies:
       - package: OverheadCore
+      - target: overhead-statusline
+        embed: true
+        codeSign: true
+        copy:
+          destination: executables
     info:
       path: Overhead/Resources/Info.plist
       properties:
@@ -63,6 +68,16 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: YES
         COMBINE_HIDPI_IMAGES: YES
         ENABLE_PREVIEWS: YES
+  overhead-statusline:
+    type: tool
+    platform: macOS
+    sources:
+      - path: OverheadStatusLine
+    settings:
+      base:
+        PRODUCT_NAME: overhead-statusline
+        PRODUCT_BUNDLE_IDENTIFIER: app.overhead.statusline
+        SKIP_INSTALL: YES
 schemes:
   Overhead:
     build:

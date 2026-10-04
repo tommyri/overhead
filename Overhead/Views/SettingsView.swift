@@ -182,6 +182,10 @@ struct ProviderSettingsPane: View {
                 }
             }
 
+            if provider == .claudeCode {
+                ClaudeStatusLineSection()
+            }
+
             Section("Billing") {
                 let plan = model.billingPlan(for: provider)
                 Picker("Billed as", selection: Binding(
@@ -387,5 +391,50 @@ final class LoginItem {
             lastError = error.localizedDescription
         }
         status = SMAppService.mainApp.status
+    }
+}
+
+
+/// Install/remove the status-line helper that records Claude's 5-hour and weekly windows.
+struct ClaudeStatusLineSection: View {
+    @Environment(AppModel.self) private var model
+    @State private var status = ClaudeStatusLine.status()
+    @State private var message: String? = nil
+
+    var body: some View {
+        Section("Plan windows") {
+            HStack(alignment: .firstTextBaseline) {
+                Image(systemName: status.installed ? "checkmark.circle.fill" : "circle").foregroundStyle(status.installed ? .green : .secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(status.installed ? "Status-line helper installed" : "Status-line helper not installed")
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if status.installed {
+                    Button("Remove") { run { try model.removeClaudeStatusLine() } }
+                } else {
+                    Button("Install") { run { try model.installClaudeStatusLine() } }.buttonStyle(.borderedProminent)
+                }
+            }
+            Text("Claude Code only exposes your plan's 5-hour and weekly windows to its status-line command. Installing sets that command in ~/.claude/settings.json (a backup is kept) to a small helper that records the windows for Overhead and otherwise shows a normal status line; an existing status line keeps working through it. Windows appear after Claude Code's next response.")
+                .font(.callout).foregroundStyle(.secondary)
+            if let message { Text(message).font(.callout).foregroundStyle(.secondary) }
+        }
+        .onAppear { status = ClaudeStatusLine.status() }
+    }
+
+    private var detail: String {
+        var parts: [String] = []
+        if let chained = status.chainedCommand { parts.append("Chains to: \(chained)") }
+        if let last = status.lastRecord {
+            parts.append(status.hasWindows ? "Windows recorded \(Fmt.relative(last))" : "Status line ran \(Fmt.relative(last)), no windows reported by Claude Code")
+        } else if status.installed { parts.append("Not run yet; use Claude Code once") }
+        return parts.isEmpty ? "Not configured in ~/.claude/settings.json" : parts.joined(separator: " · ")
+    }
+
+    private func run(_ action: () throws -> Void) {
+        do { try action(); message = nil } catch { message = error.localizedDescription }
+        status = ClaudeStatusLine.status()
+        Task { await model.refresh(.claudeCode, force: true) }
     }
 }

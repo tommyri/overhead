@@ -156,6 +156,24 @@ final class AppModel {
         }
     }
 
+    // MARK: Claude status-line helper
+
+    var claudeStatusLine: ClaudeStatusLine.Status { ClaudeStatusLine.status() }
+
+    /// The helper binary shipped inside the app bundle.
+    static var bundledStatusLineHelper: URL? {
+        Bundle.main.url(forAuxiliaryExecutable: "overhead-statusline")
+    }
+
+    func installClaudeStatusLine() throws {
+        guard let source = Self.bundledStatusLineHelper else { throw ClaudeStatusLine.InstallError.helperMissing("app bundle") }
+        try ClaudeStatusLine.install(helperSource: source)
+    }
+
+    func removeClaudeStatusLine() throws {
+        try ClaudeStatusLine.remove()
+    }
+
     // MARK: Alerts
 
     /// Recompute which windows are alerting; notify about new ones when alerts are on.
