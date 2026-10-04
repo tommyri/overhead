@@ -45,6 +45,10 @@ Subscription sources (Codex on a ChatGPT plan, Cursor Pro/Pro+/Ultra, Claude Cod
 
 Costs marked `≈` are estimates computed from the vendor's published list prices (`OverheadCore/Sources/OverheadCore/Pricing/PriceTable.swift`). Unmarked costs come straight from a billing endpoint.
 
+## Install
+
+Download the latest `Overhead-<version>.dmg` from the [Releases page](../../releases), open it and drag Overhead to Applications. Releases are signed with a Developer ID certificate and notarized by Apple.
+
 ## Build & run
 
 Requirements: Xcode 26+, [xcodegen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
@@ -74,6 +78,12 @@ Then, for each release:
 ```bash
 ./scripts/release.sh 0.1.0            # dist/Overhead-0.1.0.dmg, notarized and stapled
 ./scripts/release.sh 0.1.0 --publish  # same, then creates the GitHub release with gh
+```
+
+Or let GitHub Actions do it: pushing a tag `v<version>` runs `.github/workflows/release.yml`, which imports the Developer ID certificate from repository secrets, notarizes, and publishes the release. Set the secrets once with `scripts/setup-release-secrets.sh <DeveloperID.p12>` (export the certificate with its private key from Keychain Access first). Then:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
 ```
 
 The script builds Release with hardened runtime and a secure timestamp, notarizes the app, staples it, wraps it in a DMG with an Applications shortcut, then notarizes and staples the DMG too, and writes a SHA-256 next to it. `--skip-notarize` produces a signed but un-notarized DMG for local testing.
