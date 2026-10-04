@@ -49,13 +49,15 @@ Costs marked `≈` are estimates computed from the vendor's published list price
 
 Requirements: Xcode 26+, [xcodegen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
 
+Install a signed Release build into /Applications (uses your Developer ID or Apple Development certificate if you have one, ad-hoc signing otherwise):
+
 ```bash
-xcodegen generate
-xcodebuild -project LLMOverview.xcodeproj -scheme LLMOverview -configuration Release -derivedDataPath build/DerivedData build
-open "build/DerivedData/Build/Products/Release/LLM Overview.app"
+./scripts/install.sh
 ```
 
-Or open `LLMOverview.xcodeproj` in Xcode and press Run.
+Pass a directory to install elsewhere, e.g. `./scripts/install.sh ~/Applications`.
+
+For development, `./scripts/run.sh` builds and launches from the build folder, or open `LLMOverview.xcodeproj` in Xcode (after `xcodegen generate`) and press Run.
 
 ### Core package tests and debug CLI
 
