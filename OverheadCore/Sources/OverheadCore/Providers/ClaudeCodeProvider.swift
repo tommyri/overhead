@@ -18,6 +18,8 @@ public struct ClaudeCodeProvider: UsageProvider {
         /// Portion of `cacheWrite` written with 1-hour TTL (priced at 2× instead of 1.25×).
         public var cacheWrite1h: Int
         public var cacheRead: Int
+        /// Working directory of the session, when recorded.
+        public var cwd: String?
     }
 
     public var roots: [URL]
@@ -29,7 +31,7 @@ public struct ClaudeCodeProvider: UsageProvider {
             home.appendingPathComponent(".claude/projects", isDirectory: true),
             home.appendingPathComponent("Library/Application Support/Claude/local-agent-mode-sessions", isDirectory: true),
         ]
-        self.cache = ParsedFileCache(name: "claude-code", directory: cacheDirectory)
+        self.cache = ParsedFileCache(name: "claude-code-v2", directory: cacheDirectory)
     }
 
     public func fetch(interval: DateInterval, credentials: Credentials) async throws -> [UsageRecord] {
@@ -76,6 +78,7 @@ public struct ClaudeCodeProvider: UsageProvider {
         let timestamp: String?
         let _audit_timestamp: String?
         let requestId: String?
+        let cwd: String?
         let message: Message?
         struct Message: Decodable {
             let id: String?
@@ -120,7 +123,8 @@ public struct ClaudeCodeProvider: UsageProvider {
                 output: usage.output_tokens ?? 0,
                 cacheWrite: usage.cache_creation_input_tokens ?? 0,
                 cacheWrite1h: usage.cache_creation?.ephemeral_1h_input_tokens ?? 0,
-                cacheRead: usage.cache_read_input_tokens ?? 0
+                cacheRead: usage.cache_read_input_tokens ?? 0,
+                cwd: UsageRecord.projectKey(rec.cwd)
             )
             if byKey[key] == nil { order.append(key) }
             byKey[key] = entry   // last occurrence wins (final output_tokens)
@@ -140,8 +144,8 @@ public struct ClaudeCodeProvider: UsageProvider {
         var oneHourWrites: [String: Int] = [:]
         for e in unique.values {
             let day = DayKey.startOfDay(e.timestamp)
-            let rid = "\(DayKey.string(for: day))|\(e.model)"
-            var r = records[rid] ?? UsageRecord(provider: .claudeCode, day: day, model: e.model)
+            let rid = "\(DayKey.string(for: day))|\(e.model)|\(e.cwd ?? "")"
+            var r = records[rid] ?? UsageRecord(provider: .claudeCode, day: day, model: e.model, project: e.cwd)
             r.inputTokens += e.input
             r.outputTokens += e.output
             r.cacheWriteTokens += e.cacheWrite
@@ -159,6 +163,6 @@ public struct ClaudeCodeProvider: UsageProvider {
             }
             return r
         }
-        .sorted { ($0.day, $0.model) < ($1.day, $1.model) }
+        .sorted { ($0.day, $0.model, $0.project ?? "") < ($1.day, $1.model, $1.project ?? "") }
     }
 }

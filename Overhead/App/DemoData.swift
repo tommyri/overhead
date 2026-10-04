@@ -28,6 +28,9 @@ enum DemoData {
             Model(provider: .anthropicAPI, id: "claude-sonnet-5-5", share: 1.0,  inPerReq: 3200, outPerReq: 700,  cacheRatio: 4,    centsPerReq: nil),
         ]
         let dailyRequests: [ProviderID: Int] = [.claudeCode: 240, .codexCLI: 90, .cursor: 30, .anthropicAPI: 90]
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let projects = ["\(home)/dev/overhead", "\(home)/dev/acme-api", "\(home)/dev/acme-web", "\(home)/dev/infra", "\(home)/dev/dotfiles"]
+        let projectWeights = [0.42, 0.28, 0.16, 0.09, 0.05]
 
         for offset in stride(from: 29, through: 0, by: -1) {
             let day = calendar.date(byAdding: .day, value: -offset, to: today)!
@@ -35,13 +38,21 @@ enum DemoData {
             let weekend = weekday == 1 || weekday == 7
             let dayFactor = (weekend ? 0.25 : 1.0) * (0.55 + rng.nextDouble() * 0.9) * (offset == 9 || offset == 17 ? 2.4 : 1)
             for m in models {
-                let reqs = max(0, Int(Double(dailyRequests[m.provider]!) * m.share * dayFactor * (0.8 + rng.nextDouble() * 0.4)))
-                guard reqs > 0 else { continue }
+                let totalReqs = max(0, Int(Double(dailyRequests[m.provider]!) * m.share * dayFactor * (0.8 + rng.nextDouble() * 0.4)))
+                guard totalReqs > 0 else { continue }
+                // Local tools record a working directory; split their requests across projects.
+                let splits: [(String?, Int)] = (m.provider == .claudeCode || m.provider == .codexCLI)
+                    ? zip(projects, projectWeights).compactMap { proj, w in
+                        let n = Int((Double(totalReqs) * w * (0.6 + rng.nextDouble() * 0.8)).rounded())
+                        return n > 0 ? (proj, n) : nil
+                    }
+                    : [(nil, totalReqs)]
+                for (project, reqs) in splits {
                 let input = reqs * m.inPerReq
                 let cacheRead = Int(Double(input) * m.cacheRatio)
                 let cacheWrite = m.provider == .claudeCode ? Int(Double(cacheRead) * 0.02) : 0
                 let output = reqs * m.outPerReq
-                var rec = UsageRecord(provider: m.provider, day: day, model: m.id,
+                var rec = UsageRecord(provider: m.provider, day: day, model: m.id, project: project,
                                       inputTokens: input, outputTokens: output,
                                       cacheWriteTokens: cacheWrite, cacheReadTokens: cacheRead, requests: reqs)
                 if let cents = m.centsPerReq {
@@ -53,6 +64,7 @@ enum DemoData {
                     rec.cost = .estimated(est)
                 }
                 out.append(rec)
+                }
             }
         }
         return out

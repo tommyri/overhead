@@ -75,6 +75,38 @@ public enum UsageAggregator {
         return out.values.sorted { ($0.totals.cost.value ?? 0, $0.totals.totalTokens) > ($1.totals.cost.value ?? 0, $1.totals.totalTokens) }
     }
 
+    /// Usage grouped by working directory (local coding tools only).
+    public struct ProjectTotals: Sendable, Hashable, Identifiable {
+        public var id: String { path }
+        public var path: String
+        /// Folder name, with the parent folder added when two projects share a name.
+        public var name: String
+        public var totals: Totals
+        public var byProvider: [ProviderID: Totals]
+        public var providers: [ProviderID] { ProviderID.chartOrder.filter { byProvider[$0] != nil } }
+    }
+
+    public static func totalsByProject(_ records: [UsageRecord]) -> [ProjectTotals] {
+        var out: [String: ProjectTotals] = [:]
+        for r in records {
+            guard let path = r.project else { continue }
+            var p = out[path] ?? ProjectTotals(path: path, name: (path as NSString).lastPathComponent, totals: Totals(), byProvider: [:])
+            p.totals.add(r)
+            p.byProvider[r.provider, default: Totals()].add(r)
+            out[path] = p
+        }
+        // Disambiguate duplicate folder names with their parent folder.
+        var byName: [String: [String]] = [:]
+        for p in out.values { byName[p.name, default: []].append(p.path) }
+        for (name, paths) in byName where paths.count > 1 {
+            for path in paths {
+                let parent = ((path as NSString).deletingLastPathComponent as NSString).lastPathComponent
+                out[path]?.name = parent.isEmpty ? name : "\(parent)/\(name)"
+            }
+        }
+        return out.values.sorted { ($0.totals.cost.value ?? 0, $0.totals.totalTokens) > ($1.totals.cost.value ?? 0, $1.totals.totalTokens) }
+    }
+
     /// One point per (day, provider) for stacked daily charts. Days with no usage are
     /// filled with zero so the x-axis is continuous across the requested interval.
     public struct DailyPoint: Sendable, Hashable, Identifiable {

@@ -4,7 +4,7 @@ import Foundation
 /// Every provider adapter emits these; everything downstream (charts, totals, menu bar)
 /// only understands this shape.
 public struct UsageRecord: Codable, Hashable, Sendable, Identifiable {
-    public var id: String { "\(provider.rawValue)|\(dayKey)|\(model)" }
+    public var id: String { "\(provider.rawValue)|\(dayKey)|\(model)|\(project ?? "")" }
 
     public var provider: ProviderID
     /// Start of the local calendar day this record belongs to.
@@ -12,6 +12,8 @@ public struct UsageRecord: Codable, Hashable, Sendable, Identifiable {
     /// Vendor model id, e.g. "claude-sonnet-4-5-20250929" or "gpt-5".  Use "" when the
     /// provider does not break usage down by model (e.g. Cursor request counts).
     public var model: String
+    /// Working directory the usage happened in, for local coding tools. nil when unknown.
+    public var project: String?
 
     public var inputTokens: Int
     public var outputTokens: Int
@@ -47,6 +49,7 @@ public struct UsageRecord: Codable, Hashable, Sendable, Identifiable {
         provider: ProviderID,
         day: Date,
         model: String,
+        project: String? = nil,
         inputTokens: Int = 0,
         outputTokens: Int = 0,
         cacheWriteTokens: Int = 0,
@@ -57,6 +60,7 @@ public struct UsageRecord: Codable, Hashable, Sendable, Identifiable {
         self.provider = provider
         self.day = day
         self.model = model
+        self.project = project
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
         self.cacheWriteTokens = cacheWriteTokens
@@ -70,6 +74,20 @@ public struct UsageRecord: Codable, Hashable, Sendable, Identifiable {
 
     /// "2026-10-04" in the local calendar — used for grouping and stable ids.
     public var dayKey: String { DayKey.string(for: day) }
+
+    /// Normalize a working directory for use as a project key: trailing slash removed,
+    /// empty/root treated as unknown.
+    public static func projectKey(_ cwd: String?) -> String? {
+        guard var c = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !c.isEmpty else { return nil }
+        while c.count > 1 && c.hasSuffix("/") { c.removeLast() }
+        return c == "/" ? nil : c
+    }
+
+    /// "~/dev/overhead" style display path.
+    public static func displayPath(_ path: String) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
+    }
 
     /// Merge another record for the same (provider, day, model) into this one.
     public mutating func merge(_ other: UsageRecord) {

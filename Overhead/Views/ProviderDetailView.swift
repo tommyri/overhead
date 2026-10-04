@@ -65,6 +65,13 @@ struct ProviderDetailView: View {
                         ModelTable(models: UsageAggregator.totalsByModel(records), showProvider: false)
                     }
 
+                    let projects = UsageAggregator.totalsByProject(records)
+                    if !projects.isEmpty {
+                        ChartCard(title: "Projects") {
+                            ProjectTable(projects: projects, showProvider: false)
+                        }
+                    }
+
                     ChartCard(title: "Token breakdown") {
                         TokenBreakdown(totals: totals)
                     }

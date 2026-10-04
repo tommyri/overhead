@@ -17,6 +17,14 @@ private func fixture(_ name: String) -> URL {
         #expect(a.input == 2)
     }
 
+    @Test func recordsProjectFromWorkingDirectory() throws {
+        let records = ClaudeCodeProvider.aggregate(try ClaudeCodeProvider.parseFile(fixture("claude-session")))
+        #expect(Set(records.compactMap(\.project)) == ["/Users/demo/proj-a", "/Users/demo/proj-b"])  // trailing slash normalized
+        let projects = UsageAggregator.totalsByProject(records)
+        #expect(projects.map(\.name).sorted() == ["proj-a", "proj-b"])
+        #expect(projects.first { $0.name == "proj-a" }?.totals.outputTokens == 7816)
+    }
+
     @Test func aggregatesPerDayAndModel() throws {
         let entries = try ClaudeCodeProvider.parseFile(fixture("claude-session"))
         let records = ClaudeCodeProvider.aggregate(entries + entries) // duplicates across files collapse
@@ -34,6 +42,13 @@ private func fixture(_ name: String) -> URL {
         #expect(first.model == "gpt-5-codex")
         let second = try #require(entries.first { $0.key == "resp_2" })
         #expect(second.model == "gpt-5.5")
+    }
+
+    @Test func attributesCodexUsageToSessionDirectory() throws {
+        let entries = try CodexProvider.parseFile(fixture("codex-new"))
+        #expect(entries.allSatisfy { $0.cwd == "/x" })
+        let records = CodexProvider.aggregate(entries)
+        #expect(records.allSatisfy { $0.project == "/x" })
     }
 
     @Test func fallsBackToTokenCountDeltas() throws {
@@ -66,6 +81,20 @@ private func fixture(_ name: String) -> URL {
         #expect(UsageRecord.Cost.sum(a, b) == .estimated(3))
         #expect(UsageRecord.Cost.sum(a, .unknown) == .reported(1))
         #expect(UsageRecord.Cost.sum(.unknown, .unknown) == .unknown)
+    }
+
+    @Test func projectNamesAreDisambiguatedByParentFolder() {
+        let day = Calendar.current.startOfDay(for: Date())
+        let recs = [
+            UsageRecord(provider: .claudeCode, day: day, model: "m", project: "/Users/a/work/api", inputTokens: 1, cost: .estimated(3)),
+            UsageRecord(provider: .codexCLI,   day: day, model: "m", project: "/Users/a/side/api", inputTokens: 1, cost: .estimated(1)),
+            UsageRecord(provider: .codexCLI,   day: day, model: "m", project: "/Users/a/work/web", inputTokens: 1, cost: .estimated(2)),
+            UsageRecord(provider: .cursor,     day: day, model: "m", project: nil, inputTokens: 1, cost: .reported(9)),
+        ]
+        let projects = UsageAggregator.totalsByProject(recs)
+        #expect(projects.map(\.name) == ["work/api", "web", "side/api"])   // sorted by cost, duplicates qualified
+        #expect(projects[0].providers == [.claudeCode])
+        #expect(projects.count == 3)                                       // nil project excluded
     }
 
     @Test func dailySeriesFillsGaps() {

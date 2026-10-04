@@ -1,10 +1,12 @@
 # Overhead
 
-A native macOS app (SwiftUI, menu bar + window) that shows how much you use and spend across LLM providers in one place: daily cost and token charts, per-model breakdowns, and a menu bar item with today's spend.
+A native macOS app (SwiftUI, menu bar + window) that shows how much you use and spend across LLM providers in one place: daily cost and token charts, per-model and per-project breakdowns, paid vs value for your subscriptions, and a menu bar item with today's spend.
 
 ## Screenshots
 
 ![Overview: paid vs value, daily value by provider, top models](docs/screenshots/overview.png)
+
+![By project: usage and value per working directory, split by tool](docs/screenshots/projects.png)
 
 | Provider page with plan limits (Codex) | Provider page with plan limits (Cursor) |
 |---|---|
@@ -18,8 +20,8 @@ A native macOS app (SwiftUI, menu bar + window) that shows how much you use and 
 
 | Provider | How data is obtained | What you get |
 |---|---|---|
-| **Claude Code** | Parses `~/.claude/projects/**/*.jsonl` (and the Claude desktop app's agent-mode logs). No setup. | Tokens per model and day, request counts, cost **estimated** from list prices (incl. 5m/1h cache-write pricing). |
-| **Codex CLI** | Parses `~/.codex/sessions/**/*.jsonl` and `archived_sessions`. No setup. | Tokens per model and day, API-equivalent cost estimate, and your ChatGPT plan's 5-hour / weekly usage windows. |
+| **Claude Code** | Parses `~/.claude/projects/**/*.jsonl` (and the Claude desktop app's agent-mode logs). No setup. | Tokens per model, project and day, request counts, cost **estimated** from list prices (incl. 5m/1h cache-write pricing). |
+| **Codex CLI** | Parses `~/.codex/sessions/**/*.jsonl` and `archived_sessions`. No setup. | Tokens per model, project and day, API-equivalent cost estimate, and your ChatGPT plan's 5-hour / weekly usage windows. |
 | **Anthropic API** | Admin API key (`sk-ant-admin…`). | Org-wide token usage by model plus billed cost from the cost report. |
 | **OpenAI API** | Admin API key (`sk-admin…`). | Org-wide completions usage by model plus billed cost by line item. |
 | **Cursor** | Personal plans (Pro/Pro+/Ultra): your cursor.com login session, imported from the Cursor app with one click or pasted from the browser. Teams: Admin API key. | Per-request tokens and charged cents per model and day, plus the plan's included-usage budget and billing cycle. |

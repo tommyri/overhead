@@ -21,6 +21,8 @@ public struct CodexProvider: UsageProvider {
         public var cacheWrite: Int
         public var output: Int
         public var reasoning: Int
+        /// Working directory of the session, when recorded.
+        public var cwd: String?
     }
 
     /// Latest plan rate-limit snapshot found in the logs (ChatGPT-subscription users).
@@ -45,7 +47,7 @@ public struct CodexProvider: UsageProvider {
             home.appendingPathComponent(".codex/sessions", isDirectory: true),
             home.appendingPathComponent(".codex/archived_sessions", isDirectory: true),
         ]
-        self.cache = ParsedFileCache(name: "codex", directory: cacheDirectory)
+        self.cache = ParsedFileCache(name: "codex-v2", directory: cacheDirectory)
     }
 
     public func fetch(interval: DateInterval, credentials: Credentials) async throws -> [UsageRecord] {
@@ -120,6 +122,7 @@ public struct CodexProvider: UsageProvider {
         struct Payload: Decodable {
             let type: String?
             let model: String?
+            let cwd: String?
             let turn_id: String?
             let info: Info?
             let response_id: String?
@@ -148,7 +151,9 @@ public struct CodexProvider: UsageProvider {
         let isoPlain = ISO8601DateFormatter()
 
         var currentModel = ""
+        var currentCwd: String? = nil
         var modelByTurn: [String: String] = [:]
+        var cwdByTurn: [String: String?] = [:]
         var usageRecords: [Entry] = []
         var seenResponseIDs: Set<String> = []
         var countEvents: [Entry] = []
@@ -156,30 +161,38 @@ public struct CodexProvider: UsageProvider {
 
         try LogFiles.forEachLine(in: url) { line in
             let isTurn = line.containsASCII("\"turn_context\"")
+            let isMeta = line.containsASCII("\"session_meta\"")
             let isUsageRecord = line.containsASCII("\"token_usage_record\"")
             let isTokenCount = line.containsASCII("\"token_count\"")
-            guard isTurn || isUsageRecord || isTokenCount else { return }
+            guard isTurn || isMeta || isUsageRecord || isTokenCount else { return }
             guard let rec = try? decoder.decode(Line.self, from: line), let payload = rec.payload else { return }
             let date = rec.timestamp.flatMap { LogFiles.parseDate($0, fractional: iso, plain: isoPlain) }
 
             switch rec.type {
+            case "session_meta":
+                if currentCwd == nil, let c = UsageRecord.projectKey(payload.cwd) { currentCwd = c }
             case "turn_context":
                 if let m = payload.model, !m.isEmpty {
                     currentModel = m
                     if let t = payload.turn_id { modelByTurn[t] = m }
                 }
+                if let c = UsageRecord.projectKey(payload.cwd) {
+                    currentCwd = c
+                    if let t = payload.turn_id { cwdByTurn[t] = c }
+                }
             case "token_usage_record":
                 guard let u = payload.usage, let rid = payload.response_id, let date else { return }
                 guard seenResponseIDs.insert(rid).inserted else { return }
                 let model = payload.turn_id.flatMap { modelByTurn[$0] } ?? currentModel
-                usageRecords.append(Self.entry(key: rid, date: date, model: model, u))
+                let cwd = payload.turn_id.flatMap { cwdByTurn[$0] ?? nil } ?? currentCwd
+                usageRecords.append(Self.entry(key: rid, date: date, model: model, cwd: cwd, u))
             case "event_msg":
                 guard payload.type == "token_count", let info = payload.info,
                       let total = info.total_token_usage, let last = info.last_token_usage, let date else { return }
                 if let prev = previousTotal, prev == total { return }
                 previousTotal = total
                 let key = "\(rec.timestamp ?? "")|\(total.input_tokens ?? 0)|\(total.output_tokens ?? 0)|\(total.cached_input_tokens ?? 0)"
-                countEvents.append(Self.entry(key: key, date: date, model: currentModel, last))
+                countEvents.append(Self.entry(key: key, date: date, model: currentModel, cwd: currentCwd, last))
             default:
                 break
             }
@@ -188,11 +201,11 @@ public struct CodexProvider: UsageProvider {
         return usageRecords.isEmpty ? countEvents : usageRecords
     }
 
-    private static func entry(key: String, date: Date, model: String, _ u: Usage) -> Entry {
+    private static func entry(key: String, date: Date, model: String, cwd: String?, _ u: Usage) -> Entry {
         Entry(key: key, timestamp: date, model: model.isEmpty ? "unknown" : model,
               input: u.input_tokens ?? 0, cached: u.cached_input_tokens ?? 0,
               cacheWrite: u.cache_write_input_tokens ?? 0, output: u.output_tokens ?? 0,
-              reasoning: u.reasoning_output_tokens ?? 0)
+              reasoning: u.reasoning_output_tokens ?? 0, cwd: cwd)
     }
 
     static func parseRateLimits(_ url: URL) throws -> RateLimits? {
@@ -223,8 +236,8 @@ public struct CodexProvider: UsageProvider {
         var records: [String: UsageRecord] = [:]
         for e in unique.values {
             let day = DayKey.startOfDay(e.timestamp)
-            let rid = "\(DayKey.string(for: day))|\(e.model)"
-            var r = records[rid] ?? UsageRecord(provider: .codexCLI, day: day, model: e.model)
+            let rid = "\(DayKey.string(for: day))|\(e.model)|\(e.cwd ?? "")"
+            var r = records[rid] ?? UsageRecord(provider: .codexCLI, day: day, model: e.model, project: e.cwd)
             // Normalize to disjoint buckets: uncached input, cache read, cache write, output.
             let cacheRead = min(e.cached, e.input)
             let cacheWrite = min(e.cacheWrite, max(0, e.input - cacheRead))
@@ -243,6 +256,6 @@ public struct CodexProvider: UsageProvider {
             }
             return r
         }
-        .sorted { ($0.day, $0.model) < ($1.day, $1.model) }
+        .sorted { ($0.day, $0.model, $0.project ?? "") < ($1.day, $1.model, $1.project ?? "") }
     }
 }

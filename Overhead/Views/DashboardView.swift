@@ -70,6 +70,13 @@ struct DashboardView: View {
                         }
                         .frame(maxWidth: .infinity)
                     }
+
+                    let projects = UsageAggregator.totalsByProject(records)
+                    if !projects.isEmpty {
+                        ChartCard(title: "By project") {
+                            ProjectTable(projects: projects, limit: 10, showProvider: true)
+                        }
+                    }
                 }
             }
             .padding(20)
@@ -456,6 +463,70 @@ struct ModelTable: View {
             if models.isEmpty {
                 Text("No usage in this range").font(.callout).foregroundStyle(.secondary).padding(.vertical, 12)
             }
+        }
+    }
+}
+
+// MARK: - Project table
+
+/// Usage per working directory, from the local coding tools that record one.
+struct ProjectTable: View {
+    let projects: [UsageAggregator.ProjectTotals]
+    var limit: Int = .max
+    var showProvider = true
+
+    var body: some View {
+        let shown = Array(projects.prefix(limit))
+        let maxValue = max(0.01, shown.map { $0.totals.cost.value ?? 0 }.max() ?? 0)
+        VStack(spacing: 0) {
+            HStack {
+                Text("Project").frame(maxWidth: .infinity, alignment: .leading)
+                Text("Tokens").frame(width: 80, alignment: .trailing)
+                Text("Reqs").frame(width: 60, alignment: .trailing)
+                Text("Value").frame(width: 90, alignment: .trailing)
+            }
+            .font(.caption).foregroundStyle(.secondary).padding(.bottom, 6)
+            Divider()
+            ForEach(shown) { p in
+                VStack(spacing: 4) {
+                    HStack {
+                        HStack(spacing: 6) {
+                            if showProvider {
+                                HStack(spacing: 2) {
+                                    ForEach(p.providers) { prov in Circle().fill(prov.color).frame(width: 7, height: 7) }
+                                }
+                            }
+                            Text(p.name).lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(Fmt.tokens(p.totals.totalTokens)).frame(width: 80, alignment: .trailing).foregroundStyle(.secondary)
+                        Text(p.totals.requests > 0 ? Fmt.count(p.totals.requests) : "—").frame(width: 60, alignment: .trailing).foregroundStyle(.secondary)
+                        Text(Fmt.cost(p.totals.cost)).frame(width: 90, alignment: .trailing).fontWeight(.medium)
+                    }
+                    .font(.callout.monospacedDigit())
+                    GeometryReader { geo in
+                        HStack(spacing: 2) {
+                            ForEach(p.providers) { prov in
+                                let v = p.byProvider[prov]?.cost.value ?? 0
+                                if v > 0 {
+                                    Capsule().fill(prov.color).frame(width: max(2, geo.size.width * CGFloat(v / maxValue)))
+                                }
+                            }
+                        }
+                    }
+                    .frame(height: 3)
+                }
+                .padding(.vertical, 5)
+                .help(UsageRecord.displayPath(p.path))
+                Divider()
+            }
+            if projects.count > shown.count {
+                Text("+\(projects.count - shown.count) more project\(projects.count - shown.count == 1 ? "" : "s")")
+                    .font(.caption).foregroundStyle(.secondary).padding(.top, 6)
+            }
+            Text("From the working directory recorded by Claude Code and Codex; API and Cursor usage carries no project.")
+                .font(.caption2).foregroundStyle(.tertiary).padding(.top, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

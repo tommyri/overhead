@@ -42,6 +42,13 @@ for p in providers {
             print(row([m.model, fmtTok(t.inputTokens), fmtTok(t.outputTokens), fmtTok(t.cacheWriteTokens), fmtTok(t.cacheReadTokens), "\(t.requests)", fmtUSD(t.cost)]))
         }
         print(row(["TOTAL", fmtTok(totals.inputTokens), fmtTok(totals.outputTokens), fmtTok(totals.cacheWriteTokens), fmtTok(totals.cacheReadTokens), "\(totals.requests)", fmtUSD(totals.cost)]))
+        let projects = UsageAggregator.totalsByProject(recs)
+        if !projects.isEmpty {
+            print("   by project:")
+            for p in projects.prefix(10) {
+                print("   " + pad(UsageRecord.displayPath(p.path), 56) + pad("\(p.totals.requests) reqs", 12, right: true) + pad(fmtUSD(p.totals.cost), 11, right: true))
+            }
+        }
         if let codex = p as? CodexProvider, let rl = codex.latestRateLimits() {
             print("   plan: \(rl.planType ?? "?")  5h window: \(rl.primary.map { "\($0.usedPercent)%" } ?? "-")  weekly: \(rl.secondary.map { "\($0.usedPercent)%" } ?? "-")  (observed \(rl.observedAt))")
         }
